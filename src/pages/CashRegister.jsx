@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
-import { getCashIn, getExpenses, addCashIn } from '../services/db';
-import { Plus, ArrowDownRight, ArrowUpRight, DollarSign, Download, FileText } from 'lucide-react';
+import { getCashIn, getExpenses, addCashIn, updateCashIn, updateExpense } from '../services/db';
+import { Plus, ArrowDownRight, ArrowUpRight, DollarSign, Download, FileText, Edit2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { exportToCsv } from '../utils/exportCsv';
+import { exportToPdf } from '../utils/exportPdf';
+import { formatDate, isWithinRange, MIN_RECORD_DATE } from '../utils/dateFormat';
+import DateRangeFilter from '../components/DateRangeFilter';
+import Modal from '../components/Modal';
 import { motion, AnimatePresence } from 'framer-motion';
 import { exportToCsv } from '../utils/exportCsv';
 import { exportToPdf } from '../utils/exportPdf';
@@ -21,6 +27,10 @@ export default function CashRegister() {
   const [showForm, setShowForm] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+
+  // Editing state
+  const [editingLog, setEditingLog] = useState(null);
+  const [editLogData, setEditLogData] = useState({});
 
   useEffect(() => {
     fetchLogs();
@@ -48,6 +58,29 @@ export default function CashRegister() {
     setRemarks('');
     setCashDate(new Date().toISOString().split('T')[0]);
     setShowForm(false);
+    fetchLogs();
+  };
+
+  const handleUpdateLog = async (e) => {
+    e.preventDefault();
+    if (editingLog.type === 'credit') {
+      await updateCashIn(editingLog.id, {
+        date: editLogData.date,
+        amount: Number(editLogData.amount),
+        category: editLogData.category,
+        description: editLogData.description,
+        remarks: editLogData.remarks
+      });
+    } else {
+      await updateExpense(editingLog.id, {
+        date: editLogData.date,
+        amount: Number(editLogData.amount),
+        category: editLogData.category,
+        description: editLogData.description,
+        operatorName: editLogData.operatorName
+      });
+    }
+    setEditingLog(null);
     fetchLogs();
   };
 
@@ -164,6 +197,7 @@ export default function CashRegister() {
                 <th style={{ textAlign: 'right' }}>Amount</th>
                 <th style={{ textAlign: 'right' }}>Cum. Expense</th>
                 <th style={{ textAlign: 'right' }}>Balance</th>
+                <th style={{ textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -193,6 +227,21 @@ export default function CashRegister() {
                     <td style={{ textAlign: 'right', fontWeight: 'bold' }} className="font-mono text-gradient">
                       ₹{log.balance.toLocaleString()}
                     </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button className="text-gray-500 hover:bg-gray-100 p-1 rounded" onClick={() => {
+                        setEditingLog(log);
+                        setEditLogData({
+                          date: log.date,
+                          amount: log.amount,
+                          category: log.category,
+                          description: log.description,
+                          remarks: log.remarks || '',
+                          operatorName: log.operatorName || ''
+                        });
+                      }}>
+                        <Edit2 size={16} />
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -200,6 +249,49 @@ export default function CashRegister() {
           </table>
         </div>
       </div>
+
+      <AnimatePresence>
+        {editingLog && (
+          <Modal title={`Edit ${editingLog.type === 'credit' ? 'Cash In' : 'Expense'}`} onClose={() => setEditingLog(null)} maxWidth="500px">
+            <form onSubmit={handleUpdateLog}>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="input-group">
+                  <label>Date</label>
+                  <input type="date" className="input" value={editLogData.date} onChange={e => setEditLogData({...editLogData, date: e.target.value})} required />
+                </div>
+                <div className="input-group">
+                  <label>Amount (₹)</label>
+                  <input type="number" className="input font-mono font-bold" value={editLogData.amount} onChange={e => setEditLogData({...editLogData, amount: e.target.value})} required />
+                </div>
+              </div>
+              <div className="input-group mb-4">
+                <label>Category</label>
+                <input type="text" className="input" value={editLogData.category} onChange={e => setEditLogData({...editLogData, category: e.target.value})} required />
+              </div>
+              <div className="input-group mb-4">
+                <label>Description</label>
+                <input type="text" className="input" value={editLogData.description} onChange={e => setEditLogData({...editLogData, description: e.target.value})} required />
+              </div>
+              {editingLog.type === 'credit' ? (
+                <div className="input-group mb-6">
+                  <label>Remarks</label>
+                  <input type="text" className="input" value={editLogData.remarks} onChange={e => setEditLogData({...editLogData, remarks: e.target.value})} />
+                </div>
+              ) : (
+                <div className="input-group mb-6">
+                  <label>Operator Name</label>
+                  <input type="text" className="input" value={editLogData.operatorName} onChange={e => setEditLogData({...editLogData, operatorName: e.target.value})} />
+                </div>
+              )}
+              <div className="flex gap-4">
+                <button type="submit" className="btn btn-primary flex-1">Save Changes</button>
+                <button type="button" className="btn btn-outline flex-1" onClick={() => setEditingLog(null)}>Cancel</button>
+              </div>
+            </form>
+          </Modal>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }

@@ -219,6 +219,17 @@ export const addCashIn = async (data) => {
   setTable('cash_in', cashIn);
   return entry;
 };
+
+export const updateCashIn = async (id, updatedData) => {
+  await delay();
+  const cashIn = getTable('cash_in');
+  const index = cashIn.findIndex(c => c.id === id);
+  if (index > -1) {
+    cashIn[index] = { ...cashIn[index], ...updatedData };
+    setTable('cash_in', cashIn);
+  }
+};
+
 export const getCashIn = async () => {
   await delay(100);
   return getTable('cash_in').sort((a, b) => new Date(b.date) - new Date(a.date));

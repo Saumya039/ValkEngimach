@@ -564,36 +564,29 @@ export default function OperatorLog() {
         {activeTab === 'ledger' && (
           <motion.div key="ledger" className="card" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} style={{ padding: '1rem' }}>
             <h3 className="mb-4 text-gradient">Master Ledger (Read-only)</h3>
-            <div className="overflow-x-auto max-h-[500px]">
-              <table className="w-full text-left border-collapse table-fixed">
-                <thead className="sticky top-0 bg-white shadow-sm">
-                  <tr>
-                    <th className="py-2 px-2 text-muted font-semibold text-sm w-[20%]">Date</th>
-                    <th className="py-2 px-2 text-muted font-semibold text-sm w-[12%]">Type</th>
-                    <th className="py-2 px-2 text-muted font-semibold text-sm w-[38%]">Description</th>
-                    <th className="py-2 px-2 text-muted font-semibold text-sm text-right w-[15%]">Amount</th>
-                    <th className="py-2 px-2 text-muted font-semibold text-sm text-right w-[15%]">Balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledgerRows.map(log => (
-                    <tr key={log.id} className="border-b border-gray-100">
-                      <td className="py-2 px-2 text-sm font-mono whitespace-nowrap">{formatDate(log.date)}</td>
-                      <td className="py-2 px-2">
-                        {log.type === 'credit' ? <span className="badge badge-success">IN</span> : <span className="badge badge-danger">OUT</span>}
-                      </td>
-                      <td className="py-2 px-2 text-sm break-words" style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{log.description}</td>
-                      <td className="py-2 px-2 text-right font-mono text-sm whitespace-nowrap" style={{ color: log.type === 'credit' ? '#10b981' : '#f43f5e' }}>
-                        {log.type === 'credit' ? '+' : '-'}₹{Number(log.amount).toLocaleString()}
-                      </td>
-                      <td className="py-2 px-2 text-right font-mono font-bold text-sm">₹{log.balance.toLocaleString()}</td>
-                    </tr>
-                  ))}
-                  {ledgerRows.length === 0 && (
-                    <tr><td colSpan={5} className="text-center py-8 text-muted">No transactions yet.</td></tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="overflow-x-hidden max-h-[600px] overflow-y-auto pr-2 pb-4">
+              <div className="flex flex-col gap-3">
+                {ledgerRows.map(log => (
+                  <div key={log.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50 flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-mono text-muted">{formatDate(log.date)}</span>
+                      {log.type === 'credit' ? <span className="badge badge-success px-2 py-0.5 text-xs">IN</span> : <span className="badge badge-danger px-2 py-0.5 text-xs">OUT</span>}
+                    </div>
+                    <div className="text-sm font-medium break-words leading-tight">{log.description}</div>
+                    <div className="flex justify-between items-center mt-1 pt-2 border-t border-gray-100">
+                      <div className="text-xs text-muted">
+                        Amt: <span style={{ color: log.type === 'credit' ? '#10b981' : '#f43f5e', fontWeight: 'bold' }}>{log.type === 'credit' ? '+' : '-'}₹{Number(log.amount).toLocaleString()}</span>
+                      </div>
+                      <div className="text-xs text-muted">
+                        Bal: <span className="font-bold text-gray-800">₹{log.balance.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {ledgerRows.length === 0 && (
+                  <p className="text-center py-8 text-muted text-sm">No transactions yet.</p>
+                )}
+              </div>
             </div>
           </motion.div>
         )}

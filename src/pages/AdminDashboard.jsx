@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { getFinancialSummary, getProjects, addProject, deleteProject, updateProject, getMachines, updateMachineMaintenance, getMachineLogs, getExpenses, getCashIn, getOperatorNames, addOperatorName, removeOperatorName, updateOperatorName, getCashAlertThreshold, setCashAlertThreshold } from '../services/db';
-import { Activity, Wrench, FolderOpen, Calendar, ArrowLeft, Download, FileText, Users, X, AlertTriangle, Camera, Gauge, Trash2, Edit2 } from 'lucide-react';
+import { getFinancialSummary, getProjects, addProject, deleteProject, updateProject, getMachines, updateMachineMaintenance, getMachineLogs, getExpenses, getCashIn, getOperatorNames, addOperatorName, removeOperatorName, updateOperatorName, getCashAlertThreshold, setCashAlertThreshold, addForecast, getForecasts, deleteForecast } from '../services/db';
+import { Activity, Wrench, FolderOpen, Calendar, ArrowLeft, Download, FileText, Users, X, AlertTriangle, Camera, Gauge, Trash2, Edit2, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { exportToCsv } from '../utils/exportCsv';
@@ -22,6 +22,7 @@ export default function AdminDashboard() {
   const [machineLogs, setMachineLogs] = useState([]);
   const [allExpenses, setAllExpenses] = useState([]);
   const [cashInLogs, setCashInLogs] = useState([]);
+  const [forecasts, setForecasts] = useState([]);
 
   const [newProjectName, setNewProjectName] = useState('');
   const [editingProjectId, setEditingProjectId] = useState(null);
@@ -53,8 +54,23 @@ export default function AdminDashboard() {
   const [expenseDateTo, setExpenseDateTo] = useState('');
   const [machineLogDateFrom, setMachineLogDateFrom] = useState('');
   const [machineLogDateTo, setMachineLogDateTo] = useState('');
+  
+  // New Filters for Synthesis - M/C
+  const [filterMachineId, setFilterMachineId] = useState('');
+  const [filterProjectId, setFilterProjectId] = useState('');
+  const [utilizationMonth, setUtilizationMonth] = useState(new Date().toISOString().substring(0, 7));
 
   const [viewingPhoto, setViewingPhoto] = useState(null);
+
+  // Forecast state
+  const [newForecastMachineId, setNewForecastMachineId] = useState('');
+  const [newForecastProjectId, setNewForecastProjectId] = useState('');
+  const [newForecastMonth, setNewForecastMonth] = useState(new Date().toISOString().substring(0, 7));
+  const [newForecastHours, setNewForecastHours] = useState('');
+
+  // Editing Machine Log
+  const [editingMachineLog, setEditingMachineLog] = useState(null);
+  const [editLogData, setEditLogData] = useState({});
 
   useEffect(() => {
     fetchData();
@@ -75,6 +91,8 @@ export default function AdminDashboard() {
     setCashInLogs(cash);
     const ops = await getOperatorNames();
     setOperatorNames(ops);
+    const fcsts = await getForecasts();
+    setForecasts(fcsts);
   }
 
   const handleAddOperator = async (e) => {
@@ -96,6 +114,30 @@ export default function AdminDashboard() {
     await updateOperatorName(oldName, editingOperatorNameNew.trim());
     setEditingOperatorNameOld(null);
     fetchData();
+  };
+
+  const handleUpdateMachineLog = async (e) => {
+    e.preventDefault();
+    await updateMachineLog(editingMachineLog.id, editLogData);
+    setEditingMachineLog(null);
+    fetchData();
+  };
+
+  const handleAddForecast = async (e) => {
+    e.preventDefault();
+    if (!newForecastMachineId || !newForecastProjectId || !newForecastMonth || !newForecastHours) return;
+    await addForecast({ machineId: newForecastMachineId, projectId: newForecastProjectId, month: newForecastMonth, hours: Number(newForecastHours) });
+    setNewForecastMachineId('');
+    setNewForecastProjectId('');
+    setNewForecastHours('');
+    const fcsts = await getForecasts();
+    setForecasts(fcsts);
+  };
+  
+  const handleDeleteForecast = async (id) => {
+    await deleteForecast(id);
+    const fcsts = await getForecasts();
+    setForecasts(fcsts);
   };
 
   const handleAddProject = async (e) => {
@@ -197,9 +239,18 @@ export default function AdminDashboard() {
 
   const machineSummary = {};
   machineLogs.forEach(log => {
-    if(!machineSummary[log.machineId]) machineSummary[log.machineId] = {};
-    if(!machineSummary[log.machineId][log.projectId]) machineSummary[log.machineId][log.projectId] = 0;
-    machineSummary[log.machineId][log.projectId] += parseHours(log.netHours);
+    if (machineLogDateFrom && !isWithinRange(log.date, machineLogDateFrom, machineLogDateTo)) return;
+    if (filterMachineId && log.machineId !== filterMachineId) return;
+    if (filterProjectId && log.projectId !== filterProjectId) return;
+    
+    const m = machines.find(mac => mac.id === log.machineId);
+    const mName = m ? m.name : log.machineId;
+    const p = projects.find(proj => proj.id === log.projectId);
+    const pName = p ? p.name : log.projectId;
+
+    if(!machineSummary[mName]) machineSummary[mName] = {};
+    if(!machineSummary[mName][pName]) machineSummary[mName][pName] = 0;
+    machineSummary[mName][pName] += parseHours(log.netHours);
   });
 
   // Date-wise summary: total hours per activity type per day, plus grand total
@@ -234,24 +285,44 @@ export default function AdminDashboard() {
   }, {});
   const grandTotalHours = Object.values(grandTotalsByType).reduce((s, v) => s + v, 0);
 
-  // Utilization % per machine (this calendar month)
-  const now = new Date();
-  const daysElapsedThisMonth = now.getDate();
-  const availableHoursThisMonth = daysElapsedThisMonth * WORK_HOURS_PER_DAY;
-  const utilizationByMachine = machines.map(m => {
-    const hoursThisMonth = machineLogs
-      .filter(l => l.machineId === m.id && (() => {
-        const d = new Date(l.date);
-        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-      })())
+  // Utilization data (Bar Chart)
+  const [utilYear, utilMonth] = utilizationMonth.split('-');
+  const daysInMonth = new Date(Number(utilYear), Number(utilMonth), 0).getDate();
+  const today = new Date();
+  const isCurrentMonth = today.getFullYear() === Number(utilYear) && today.getMonth() + 1 === Number(utilMonth);
+  const elapsedDays = isCurrentMonth ? today.getDate() : daysInMonth;
+  const availableHoursMonth = elapsedDays * WORK_HOURS_PER_DAY;
+  
+  const utilizationChartData = machines.map(m => {
+    const hours = machineLogs
+      .filter(l => l.machineId === m.id && l.date.startsWith(utilizationMonth))
       .reduce((s, l) => s + parseHours(l.netHours), 0);
-    const pct = availableHoursThisMonth > 0 ? Math.min(100, (hoursThisMonth / availableHoursThisMonth) * 100) : 0;
-    return { ...m, hoursThisMonth, pct };
+    return { name: m.name, hours: Number(hours.toFixed(1)) };
   });
 
   // Filtered ledger rows
-  const visibleMachineLogs = (machineLogDateFrom || machineLogDateTo) ? machineLogs.filter(l => isWithinRange(l.date, machineLogDateFrom, machineLogDateTo)) : machineLogs;
+  const visibleMachineLogs = machineLogs.filter(l => {
+    if (machineLogDateFrom && !isWithinRange(l.date, machineLogDateFrom, machineLogDateTo)) return false;
+    if (filterMachineId && l.machineId !== filterMachineId) return false;
+    if (filterProjectId && l.projectId !== filterProjectId) return false;
+    return true;
+  });
   const visibleExpenses = (expenseDateFrom || expenseDateTo) ? allExpenses.filter(e => isWithinRange(e.date, expenseDateFrom, expenseDateTo)) : allExpenses;
+
+  // Forecast data for chart
+  const forecastChartData = machines.map(m => {
+    // Actuals
+    const actuals = visibleMachineLogs
+      .filter(l => l.machineId === m.id)
+      .reduce((s, l) => s + parseHours(l.netHours), 0);
+      
+    // Forecasts
+    const fcasts = forecasts
+      .filter(f => f.machineId === m.id && f.month === utilizationMonth)
+      .reduce((s, f) => s + f.hours, 0);
+
+    return { name: m.name, actual: Number(actuals.toFixed(1)), forecast: Number(fcasts.toFixed(1)) };
+  });
 
   const handleExportMachineLogs = () => {
     exportToCsv('machine_activity_log.csv', visibleMachineLogs.map(l => ({
@@ -308,16 +379,19 @@ export default function AdminDashboard() {
 
       <div className="flex flex-wrap gap-4 mb-8">
         <button className={`btn ${activeTab === 'reports' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setActiveTab('reports'); setSelectedProject(null);}}>
-          <Activity size={16} /> Synthesis - Cash
+          <Activity size={16} /> Home
         </button>
         <button className={`btn ${activeTab === 'ledgers' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setActiveTab('ledgers'); setSelectedProject(null);}}>
-          <FolderOpen size={16} /> Synthesis - M/C
+          <FolderOpen size={16} /> Projectwise Machine Log
         </button>
         <button className={`btn ${activeTab === 'projects' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setActiveTab('projects'); setSelectedProject(null);}}>
           <Activity size={16} /> Projects
         </button>
         <button className={`btn ${activeTab === 'machines' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setActiveTab('machines'); setSelectedProject(null);}}>
-          <Wrench size={16} /> Machine Activity Log
+          <Wrench size={16} /> Machine Maintenance
+        </button>
+        <button className={`btn ${activeTab === 'forecast' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setActiveTab('forecast'); setSelectedProject(null);}}>
+          <TrendingUp size={16} /> Machine Forecast
         </button>
       </div>
 
@@ -445,15 +519,53 @@ export default function AdminDashboard() {
 
         {activeTab === 'ledgers' && (
           <motion.div key="ledgers" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="grid grid-cols-1 gap-8">
+            
+            {/* Filters & Projectwise Summary */}
+            <div className="card">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 border-b pb-4">
+                <h3 className="mb-0">Projectwise Machine Log</h3>
+                <div className="flex flex-wrap gap-4 items-center">
+                  <div className="input-group" style={{ marginBottom: 0 }}>
+                    <select className="select" value={filterMachineId} onChange={(e) => setFilterMachineId(e.target.value)}>
+                      <option value="">All Machines</option>
+                      {machines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="input-group" style={{ marginBottom: 0 }}>
+                    <select className="select" value={filterProjectId} onChange={(e) => setFilterProjectId(e.target.value)}>
+                      <option value="">All Projects</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <DateRangeFilter from={machineLogDateFrom} to={machineLogDateTo} onFromChange={setMachineLogDateFrom} onToChange={setMachineLogDateTo} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Object.entries(machineSummary).map(([machName, projs]) => (
+                  <div key={machName} className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+                    <h4 className="font-bold text-lg mb-3 pb-2 border-b border-gray-200">{machName}</h4>
+                    <div className="flex flex-col gap-2">
+                      {Object.entries(projs).map(([projName, decimalHrs]) => (
+                        <div key={projName} className="flex justify-between items-center text-sm">
+                          <span className="text-gray-600">{projName}</span>
+                          <span className="font-mono font-bold text-cta-color">{formatHours(decimalHrs)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {Object.keys(machineSummary).length === 0 && <p className="text-muted">No machine logs in this range.</p>}
+              </div>
+            </div>
+
+            {/* Machine Run Time Log (Raw Entries) */}
             <div className="card">
               <div className="flex justify-between items-center mb-4" style={{ flexWrap: 'wrap', gap: '1rem' }}>
-                <h3 className="mb-0">Machine Log</h3>
-                <div className="flex items-center gap-4" style={{ flexWrap: 'wrap' }}>
-                  <DateRangeFilter from={machineLogDateFrom} to={machineLogDateTo} onFromChange={setMachineLogDateFrom} onToChange={setMachineLogDateTo} />
-                  <div className="flex gap-2">
-                    <button className="btn btn-outline text-sm" onClick={handleExportMachineLogs}><Download size={14} /> CSV</button>
-                    <button className="btn btn-outline text-sm" onClick={handleExportMachineLogsPdf}><FileText size={14} /> PDF</button>
-                  </div>
+                <h3 className="mb-0">Machine Run Time Log</h3>
+                <div className="flex gap-2">
+                  <button className="btn btn-outline text-sm" onClick={handleExportMachineLogs}><Download size={14} /> CSV</button>
+                  <button className="btn btn-outline text-sm" onClick={handleExportMachineLogsPdf}><FileText size={14} /> PDF</button>
                 </div>
               </div>
               <div className="overflow-x-auto max-h-[400px]">
@@ -467,120 +579,85 @@ export default function AdminDashboard() {
                       <th className="py-3 px-4 text-muted font-semibold">Project</th>
                       <th className="py-3 px-4 text-muted font-semibold text-right">Duration</th>
                       <th className="py-3 px-4 text-muted font-semibold text-center">Photo</th>
+                      <th className="py-3 px-4 text-muted font-semibold text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleMachineLogs.map(log => (
-                      <tr key={log.id} className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="py-3 px-4 text-sm">{log.endDate && log.endDate !== log.date ? `${formatDate(log.date)} - ${formatDate(log.endDate)}` : formatDate(log.date)}</td>
-                        <td className="py-3 px-4 font-medium">{operatorDisplay(log)}</td>
-                        <td className="py-3 px-4 text-xs">
-                          <span className="bg-gray-100 px-2 py-1 rounded">{log.activityType || 'N/A'}</span>
-                        </td>
-                        <td className="py-3 px-4 text-muted">{log.machineId}</td>
-                        <td className="py-3 px-4">{log.projectId}</td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-cta-color">{log.netHours}</td>
-                        <td className="py-3 px-4 text-center">
-                          {log.photo ? (
-                            <button type="button" className="btn btn-outline" style={{ padding: '0.3rem' }} onClick={() => setViewingPhoto(log.photo)}>
-                              <Camera size={14} />
+                    {visibleMachineLogs.map(log => {
+                      const m = machines.find(mac => mac.id === log.machineId);
+                      const p = projects.find(proj => proj.id === log.projectId);
+                      return (
+                        <tr key={log.id} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="py-3 px-4 text-sm">{log.endDate && log.endDate !== log.date ? `${formatDate(log.date)} - ${formatDate(log.endDate)}` : formatDate(log.date)}</td>
+                          <td className="py-3 px-4 font-medium">{operatorDisplay(log)}</td>
+                          <td className="py-3 px-4 text-xs">
+                            <span className="bg-gray-100 px-2 py-1 rounded">{log.activityType || 'N/A'}</span>
+                          </td>
+                          <td className="py-3 px-4">{m ? m.name : log.machineId}</td>
+                          <td className="py-3 px-4 text-muted">{p ? p.name : log.projectId}</td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-cta-color">{log.netHours}</td>
+                          <td className="py-3 px-4 text-center">
+                            {log.photo ? (
+                              <button type="button" className="btn btn-outline" style={{ padding: '0.3rem' }} onClick={() => setViewingPhoto(log.photo)}>
+                                <Camera size={14} />
+                              </button>
+                            ) : <span className="text-muted">-</span>}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <button className="text-gray-500 hover:bg-gray-100 p-1 rounded" onClick={() => {
+                              setEditingMachineLog(log);
+                              setEditLogData({
+                                date: log.date,
+                                endDate: log.endDate || log.date,
+                                operatorName: log.operatorName || (log.operatorIds && log.operatorIds.length > 0 ? log.operatorIds[0] : ''),
+                                activityType: log.activityType || '',
+                                machineId: log.machineId,
+                                projectId: log.projectId,
+                                netHours: log.netHours,
+                              });
+                            }}>
+                              <Edit2 size={16} />
                             </button>
-                          ) : <span className="text-muted">-</span>}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {visibleMachineLogs.length === 0 && (
-                      <tr><td colSpan={7} className="text-center py-8 text-muted">No machine logs in this range.</td></tr>
+                      <tr><td colSpan={8} className="text-center py-8 text-muted">No machine logs in this range.</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
 
-            {/* Utilization % per machine */}
+            {/* Machine Utilization Bar Chart */}
             <div className="card">
-              <h3 className="mb-2 flex items-center gap-2"><Gauge size={18} /> Machine Utilization (This Month)</h3>
-              <p className="text-xs text-muted mb-6">Logged hours vs. available shift hours ({WORK_HOURS_PER_DAY}h/day × {daysElapsedThisMonth} days elapsed this month).</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {utilizationByMachine.map(m => (
-                  <div key={m.id} className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="font-bold">{m.name}</span>
-                      <span className="font-mono font-bold text-cta-color">{m.pct.toFixed(0)}%</span>
-                    </div>
-                    <div style={{ height: '8px', borderRadius: '4px', background: '#e2e8f0', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${m.pct}%`, background: 'var(--cta-color)', borderRadius: '4px' }}></div>
-                    </div>
-                    <p className="text-xs text-muted mt-2">{m.name} ran {m.pct.toFixed(0)}% of available hours this month ({formatHours(m.hoursThisMonth)} logged).</p>
-                  </div>
-                ))}
-                {utilizationByMachine.length === 0 && <p className="text-muted">No machines yet.</p>}
+              <div className="flex justify-between items-center mb-6 border-b pb-4" style={{ flexWrap: 'wrap', gap: '1rem' }}>
+                <h3 className="mb-0 flex items-center gap-2"><Gauge size={18} /> Machine Utilization</h3>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <input type="month" className="input" value={utilizationMonth} onChange={(e) => setUtilizationMonth(e.target.value)} />
+                </div>
+              </div>
+              <p className="text-xs text-muted mb-6">Aggregate run time (hours) vs. available shift hours ({WORK_HOURS_PER_DAY}h/day A- {elapsedDays} days elapsed).</p>
+              
+              <div style={{ height: 350 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={utilizationChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                    <XAxis dataKey="name" tick={{fill: '#94a3b8', fontSize: 12}} />
+                    <YAxis tick={{fill: '#94a3b8', fontSize: 12}} label={{ value: 'Hours', angle: -90, position: 'insideLeft', fill: '#94a3b8' }} />
+                    <Tooltip cursor={{fill: 'rgba(0,0,0,0.05)'}} formatter={(val) => `${val} hrs`} />
+                    
+                    {/* Background bar representing total available capacity */}
+                    <Bar dataKey={() => availableHoursMonth} fill="#f1f5f9" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                    
+                    {/* Actual utilization bar overlapping */}
+                    <Bar dataKey="hours" fill="var(--cta-color)" radius={[4, 4, 0, 0]} label={{ position: 'top', fill: '#0b7a69', fontSize: 12, formatter: (v)=>`${v}h` }} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
 
-            {/* Machine Run Time (moved from Synthesis - Cash) */}
-            <div className="card">
-              <h3 className="mb-6">Machine Run Time</h3>
-              <div className="overflow-x-auto max-h-[400px]">
-                <table className="w-full text-left border-collapse whitespace-nowrap">
-                  <thead className="sticky top-0 bg-white shadow-sm">
-                    <tr>
-                      <th className="py-3 px-4 text-muted font-semibold">Date</th>
-                      {activityTypesSeen.map(t => (
-                        <th key={t} className="py-3 px-4 text-muted font-semibold text-right">{t}</th>
-                      ))}
-                      <th className="py-3 px-4 text-muted font-semibold text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dailySummaryRows.map(([day, row]) => (
-                      <tr key={day} className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="py-3 px-4 text-sm font-medium">{day}</td>
-                        {activityTypesSeen.map(t => (
-                          <td key={t} className="py-3 px-4 text-right font-mono text-sm">{(row.byType[t] || 0).toFixed(1)}</td>
-                        ))}
-                        <td className="py-3 px-4 text-right font-mono font-bold text-cta-color">{row.total.toFixed(1)}</td>
-                      </tr>
-                    ))}
-                    {dailySummaryRows.length === 0 && (
-                      <tr><td colSpan={activityTypesSeen.length + 2} className="text-center py-8 text-muted">No machine logs yet.</td></tr>
-                    )}
-                  </tbody>
-                  {dailySummaryRows.length > 0 && (
-                    <tfoot>
-                      <tr className="border-t-2 border-gray-300">
-                        <td className="py-3 px-4 font-bold">Grand Total</td>
-                        {activityTypesSeen.map(t => (
-                          <td key={t} className="py-3 px-4 text-right font-mono font-bold">{grandTotalsByType[t].toFixed(1)}</td>
-                        ))}
-                        <td className="py-3 px-4 text-right font-mono font-bold text-cta-color">{grandTotalHours.toFixed(1)}</td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
-            </div>
-
-            {/* Per-Machine Project Summary (moved from Synthesis - Cash) */}
-            <div className="card">
-              <h3 className="mb-6">Per-Machine Project Summary</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(machineSummary).map(([machId, projs]) => (
-                  <div key={machId} className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                    <h4 className="font-bold text-lg mb-3 pb-2 border-b border-gray-200">{machId}</h4>
-                    <div className="flex flex-col gap-2">
-                      {Object.entries(projs).map(([projId, decimalHrs]) => (
-                        <div key={projId} className="flex justify-between items-center text-sm">
-                          <span className="text-gray-600">{projId}</span>
-                          <span className="font-mono font-bold text-cta-color">{formatHours(decimalHrs)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {Object.keys(machineSummary).length === 0 && <p className="text-muted">No machine logs yet.</p>}
-              </div>
-            </div>
           </motion.div>
         )}
 
@@ -762,6 +839,103 @@ export default function AdminDashboard() {
             </div>
           </motion.div>
         )}
+
+        {activeTab === 'forecast' && (
+          <motion.div key="forecast" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            
+            <div className="card mb-6">
+              <h3 className="mb-4">Add Machine Forecast</h3>
+              <form onSubmit={handleAddForecast} className="flex flex-wrap gap-4 items-end">
+                <div className="input-group" style={{ marginBottom: 0, flex: 1, minWidth: '150px' }}>
+                  <label>Machine</label>
+                  <select className="select" value={newForecastMachineId} onChange={e => setNewForecastMachineId(e.target.value)} required>
+                    <option value="">Select...</option>
+                    {machines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </div>
+                <div className="input-group" style={{ marginBottom: 0, flex: 1, minWidth: '150px' }}>
+                  <label>Project</label>
+                  <select className="select" value={newForecastProjectId} onChange={e => setNewForecastProjectId(e.target.value)} required>
+                    <option value="">Select...</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div className="input-group" style={{ marginBottom: 0, flex: 1, minWidth: '130px' }}>
+                  <label>Month</label>
+                  <input type="month" className="input" value={newForecastMonth} onChange={e => setNewForecastMonth(e.target.value)} required />
+                </div>
+                <div className="input-group" style={{ marginBottom: 0, flex: 1, minWidth: '120px' }}>
+                  <label>Expected Hours</label>
+                  <input type="number" step="0.5" className="input" placeholder="e.g. 50" value={newForecastHours} onChange={e => setNewForecastHours(e.target.value)} required />
+                </div>
+                <button type="submit" className="btn btn-primary whitespace-nowrap mb-[2px]">Add Forecast</button>
+              </form>
+            </div>
+
+            <div className="card mb-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="mb-0 flex items-center gap-2"><TrendingUp size={18} /> Forecast vs Actuals</h3>
+                <div className="text-sm text-muted">
+                  Note: "Actuals" uses the date filters and dropdowns from the Projectwise Log tab. "Forecasts" use the Utilization Month filter.
+                </div>
+              </div>
+              
+              <div style={{ height: 400 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={forecastChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                    <XAxis dataKey="name" tick={{fill: '#94a3b8', fontSize: 12}} />
+                    <YAxis tick={{fill: '#94a3b8', fontSize: 12}} label={{ value: 'Hours', angle: -90, position: 'insideLeft', fill: '#94a3b8' }} />
+                    <Tooltip cursor={{fill: 'rgba(0,0,0,0.05)'}} formatter={(val) => `${val} hrs`} />
+                    
+                    <Bar dataKey="forecast" name="Forecast" fill="#eab308" radius={[4, 4, 0, 0]} label={{ position: 'top', fill: '#ca8a04', fontSize: 12 }} />
+                    <Bar dataKey="actual" name="Actuals" fill="var(--cta-color)" radius={[4, 4, 0, 0]} label={{ position: 'top', fill: '#0b7a69', fontSize: 12 }} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="card">
+              <h3 className="mb-4">Forecast Entries</h3>
+              <div className="overflow-x-auto max-h-[400px]">
+                <table className="w-full text-left border-collapse whitespace-nowrap">
+                  <thead className="sticky top-0 bg-white shadow-sm">
+                    <tr>
+                      <th className="py-3 px-4 text-muted font-semibold">Month</th>
+                      <th className="py-3 px-4 text-muted font-semibold">Machine</th>
+                      <th className="py-3 px-4 text-muted font-semibold">Project</th>
+                      <th className="py-3 px-4 text-muted font-semibold text-right">Hours</th>
+                      <th className="py-3 px-4 text-muted font-semibold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {forecasts.map(f => {
+                      const m = machines.find(mac => mac.id === f.machineId);
+                      const p = projects.find(proj => proj.id === f.projectId);
+                      return (
+                        <tr key={f.id} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="py-3 px-4 text-sm font-medium">{f.month}</td>
+                          <td className="py-3 px-4">{m ? m.name : f.machineId}</td>
+                          <td className="py-3 px-4 text-muted">{p ? p.name : f.projectId}</td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-cta-color">{f.hours}</td>
+                          <td className="py-3 px-4 text-right">
+                            <button className="text-danger-color p-1 hover:bg-red-50 rounded" onClick={() => handleDeleteForecast(f.id)}>
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {forecasts.length === 0 && (
+                      <tr><td colSpan={5} className="text-center py-8 text-muted">No forecasts added.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </motion.div>
+        )}
       </AnimatePresence>
 
       <AnimatePresence>
@@ -807,6 +981,55 @@ export default function AdminDashboard() {
         {viewingPhoto && (
           <Modal title="Machine Photo" onClose={() => setViewingPhoto(null)} maxWidth="600px">
             <img src={viewingPhoto} alt="Machine state" style={{ width: '100%', borderRadius: '8px' }} />
+          </Modal>
+        )}
+
+        {editingMachineLog && (
+          <Modal title="Edit Machine Log" onClose={() => setEditingMachineLog(null)} maxWidth="500px">
+            <form onSubmit={handleUpdateMachineLog}>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="input-group">
+                  <label>Start Date</label>
+                  <input type="date" className="input" value={editLogData.date} onChange={e => setEditLogData({...editLogData, date: e.target.value})} required />
+                </div>
+                <div className="input-group">
+                  <label>End Date</label>
+                  <input type="date" className="input" value={editLogData.endDate} onChange={e => setEditLogData({...editLogData, endDate: e.target.value})} required />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="input-group">
+                  <label>Machine</label>
+                  <select className="select" value={editLogData.machineId} onChange={e => setEditLogData({...editLogData, machineId: e.target.value})} required>
+                    {machines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Project</label>
+                  <select className="select" value={editLogData.projectId} onChange={e => setEditLogData({...editLogData, projectId: e.target.value})} required>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="input-group">
+                  <label>Activity</label>
+                  <input type="text" className="input" value={editLogData.activityType} onChange={e => setEditLogData({...editLogData, activityType: e.target.value})} />
+                </div>
+                <div className="input-group">
+                  <label>Operator</label>
+                  <input type="text" className="input" value={editLogData.operatorName} onChange={e => setEditLogData({...editLogData, operatorName: e.target.value})} />
+                </div>
+                <div className="input-group">
+                  <label>Hours</label>
+                  <input type="number" step="0.1" className="input font-mono font-bold" value={editLogData.netHours} onChange={e => setEditLogData({...editLogData, netHours: e.target.value})} required />
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <button type="submit" className="btn btn-primary flex-1">Save Changes</button>
+                <button type="button" className="btn btn-outline flex-1" onClick={() => setEditingMachineLog(null)}>Cancel</button>
+              </div>
+            </form>
           </Modal>
         )}
       </AnimatePresence>
