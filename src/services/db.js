@@ -30,12 +30,27 @@ export const initializeDB = () => {
     const nextMonth = new Date();
     nextMonth.setMonth(today.getMonth() + 1);
     setTable('machines', [
-      { id: 'VMC-01', name: 'VMC 01', lastMaintenance: today.toISOString(), nextMaintenance: nextMonth.toISOString() },
-      { id: 'CNC-02', name: 'Router 1', lastMaintenance: today.toISOString(), nextMaintenance: nextMonth.toISOString() },
-      { id: 'LAS-03', name: 'Router 2', lastMaintenance: today.toISOString(), nextMaintenance: nextMonth.toISOString() }
+      { id: 'VMC-01', name: 'VMC-01', lastMaintenance: today.toISOString(), nextMaintenance: nextMonth.toISOString() },
+      { id: 'CNC-02', name: 'Router 01', lastMaintenance: today.toISOString(), nextMaintenance: nextMonth.toISOString() },
+      { id: 'LAS-03', name: 'Router 02', lastMaintenance: today.toISOString(), nextMaintenance: nextMonth.toISOString() }
     ]);
   }
   
+  if (!localStorage.getItem('valk_cleared_cash_v4')) {
+    localStorage.removeItem('valk_cash_in');
+    localStorage.removeItem('valk_expenses');
+    localStorage.setItem('valk_cleared_cash_v4', 'true');
+    const currentMachines = getTable('machines');
+    if (currentMachines) {
+      currentMachines.forEach(m => {
+        if (m.name === 'VMC 01') m.name = 'VMC-01';
+        if (m.name === 'Router 1') m.name = 'Router 01';
+        if (m.name === 'Router 2') m.name = 'Router 02';
+      });
+      setTable('machines', currentMachines);
+    }
+  }
+
   if (!getTable('machine_logs') || getTable('machine_logs').length === 0) {
     setTable('machine_logs', seedData.machine_logs || []);
   }
@@ -129,14 +144,30 @@ export const reportMaintenanceDone = async (id) => {
 
 
 // Machine Logs (Operator)
-export const addMachineLog = async (logData) => {
-  await delay();
-  const logs = getTable('machine_logs');
-  const newLog = { ...logData, id: Date.now().toString(), createdAt: new Date().toISOString() };
-  logs.push(newLog);
-  setTable('machine_logs', logs);
-  return newLog;
-};
+  export const addMachineLog = async (logData) => {
+    await delay();
+    const logs = getTable('machine_logs');
+    const newLog = { ...logData, id: Date.now().toString(), createdAt: new Date().toISOString() };
+    logs.push(newLog);
+    setTable('machine_logs', logs);
+    return newLog;
+  };
+
+  export const updateMachineLog = async (id, updatedData) => {
+    await delay();
+    const logs = getTable('machine_logs');
+    const index = logs.findIndex(l => l.id === id);
+    if (index > -1) {
+      logs[index] = { ...logs[index], ...updatedData };
+      setTable('machine_logs', logs);
+    }
+  };
+
+  export const deleteMachineLog = async (id) => {
+    await delay();
+    const logs = getTable('machine_logs');
+    setTable('machine_logs', logs.filter(l => l.id !== id));
+  };
 
 export const getMachineLogs = async () => {
   await delay(100);
@@ -194,14 +225,30 @@ export const getCashIn = async () => {
 };
 
 // Expenses (Admin + Operator)
-export const addExpense = async (data) => {
-  await delay();
-  const expenses = getTable('expenses');
-  const entry = { ...data, id: Date.now().toString(), type: 'debit', createdAt: new Date().toISOString() };
-  expenses.push(entry);
-  setTable('expenses', expenses);
-  return entry;
-};
+  export const addExpense = async (data) => {
+    await delay();
+    const expenses = getTable('expenses');
+    const entry = { ...data, id: Date.now().toString(), type: 'debit', createdAt: new Date().toISOString() };
+    expenses.push(entry);
+    setTable('expenses', expenses);
+    return entry;
+  };
+
+  export const updateExpense = async (id, updatedData) => {
+    await delay();
+    const expenses = getTable('expenses');
+    const index = expenses.findIndex(e => e.id === id);
+    if (index > -1) {
+      expenses[index] = { ...expenses[index], ...updatedData };
+      setTable('expenses', expenses);
+    }
+  };
+
+  export const deleteExpense = async (id) => {
+    await delay();
+    const expenses = getTable('expenses');
+    setTable('expenses', expenses.filter(e => e.id !== id));
+  };
 export const getExpenses = async () => {
   await delay(100);
   return getTable('expenses').sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -227,12 +274,36 @@ export const getFinancialSummary = async () => {
 };
 
 // Low cash-balance alert threshold (admin-configurable)
-export const getCashAlertThreshold = () => {
+export const getCashAlertThreshold = async () => {
+  await delay();
   const val = localStorage.getItem('valk_cash_alert_threshold');
-  return val !== null ? Number(val) : 20000;
+  return val ? parseInt(val, 10) : 50000;
 };
-export const setCashAlertThreshold = (value) => {
-  localStorage.setItem('valk_cash_alert_threshold', String(value));
+
+export const setCashAlertThreshold = async (val) => {
+  await delay();
+  localStorage.setItem('valk_cash_alert_threshold', val.toString());
+};
+
+// --- FORECASTS ---
+export const getForecasts = async () => {
+  await delay(100);
+  return getTable('forecasts') || [];
+};
+
+export const addForecast = async (forecastData) => {
+  await delay();
+  const forecasts = getTable('forecasts') || [];
+  const newForecast = { ...forecastData, id: Date.now().toString(), createdAt: new Date().toISOString() };
+  forecasts.push(newForecast);
+  setTable('forecasts', forecasts);
+  return newForecast;
+};
+
+export const deleteForecast = async (id) => {
+  await delay();
+  const forecasts = getTable('forecasts') || [];
+  setTable('forecasts', forecasts.filter(f => f.id !== id));
 };
 
 // --- AI EXPENSE CATEGORIZATION ---
