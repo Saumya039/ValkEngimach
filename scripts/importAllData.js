@@ -7,7 +7,7 @@ dotenv.config();
 
 const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY);
 
-function parseExcelDate(dateVal) {
+function parseExcelDate(dateVal, swapMonthDay) {
   let finalDateStr = '';
   
   if (!dateVal) {
@@ -15,6 +15,17 @@ function parseExcelDate(dateVal) {
   } else if (typeof dateVal === 'number') {
     // 25569 is Jan 1 1970
     finalDateStr = new Date(Math.round((dateVal - 25569) * 86400 * 1000)).toISOString().split('T')[0];
+    
+    // If we suspect the user typed D/M/YYYY into US-locale Excel, 
+    // Excel might have mistakenly parsed it as M/D/YYYY.
+    // e.g. user types "8/11/2025" (Nov 8), Excel parses as Aug 11 (2025-08-11).
+    // We swap the month and day to get 2025-11-08, BUT ONLY if the new month <= 12.
+    if (swapMonthDay) {
+      let [y, m, d] = finalDateStr.split('-');
+      if (parseInt(d) <= 12) {
+        finalDateStr = `${y}-${d}-${m}`;
+      }
+    }
   } else if (typeof dateVal === 'string') {
     const parts = dateVal.trim().split(/[-\/]/);
     if (parts.length === 3) {
@@ -41,57 +52,68 @@ function parseExcelDate(dateVal) {
 
 async function run() {
   console.log('Clearing old data...');
+  // Delete all except 'temp' which might be our default test row if we have one.
+  // Actually we'll just delete everything for a clean slate.
   await supabase.from('cash_in').delete().neq('id', 'temp');
   await supabase.from('expenses').delete().neq('id', 'temp');
 
   console.log('Reading Excel file...');
-  const workbook = xlsx.readFile('C:\\Users\\saumy\\Downloads\\Valk_Engimach_Website_updated\\CASH LEGER.xlsx');
+  const workbook = xlsx.readFile('C:\\Users\\saumy\\Downloads\\Valk_Engimach_Website_updated\\Cash Register 1.xlsx');
   
   // 1. Parse Cash In
   const cashInSheet = workbook.Sheets['Cash In'];
   if (cashInSheet) {
-    const cashData = xlsx.utils.sheet_to_json(cashInSheet);
-    const cashEntries = [];
-    for (const row of cashData) {
-      if (!row.Amount || typeof row.Amount !== 'number') continue;
-      cashEntries.push({
-        id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 9),
-        date: parseExcelDate(row.Date),
-        amount: Number(row.Amount),
+    const data = xlsx.utils.sheet_to_json(cashInSheet);
+    const entries = [];
+    data.forEach((row, idx) => {
+      if (!row.Amount || typeof row.Amount !== 'number') return;
+      
+      // The user used M/D/YYYY up to row 22, and D/M/YYYY afterwards.
+      const swapMonthDay = idx >= 23;
+      let dateStr = parseExcelDate(row.Date, swapMonthDay);
+
+      entries.push({
+        id: Date.now().toString() + Math.floor(Math.random() * 100000),
+        date: dateStr,
+        amount: row.Amount,
         category: row.Category || 'Other',
-        description: String(row['Remarks/ Reference etc.'] || row.Description || 'Imported Entry'),
+        description: row['Remarks/ Reference etc.'] || row.Description || 'Imported Cash In',
         type: 'credit'
       });
-    }
-    if (cashEntries.length > 0) {
-      const { error } = await supabase.from('cash_in').insert(cashEntries);
-      if (error) console.error('Error cash_in:', error);
-      else console.log(`Inserted ${cashEntries.length} cash in entries.`);
+    });
+    
+    if (entries.length > 0) {
+      const { error } = await supabase.from('cash_in').insert(entries);
+      if (error) console.error('Cash In Error:', error.message);
+      else console.log(`Inserted ${entries.length} cash in entries.`);
     }
   }
 
   // 2. Parse Expenses
   const expSheet = workbook.Sheets['Expanse'];
   if (expSheet) {
-    const expData = xlsx.utils.sheet_to_json(expSheet);
-    const expEntries = [];
-    for (const row of expData) {
-      if (!row.Amount || typeof row.Amount !== 'number') continue;
-      expEntries.push({
+    const data = xlsx.utils.sheet_to_json(expSheet);
+    const entries = [];
+    data.forEach((row) => {
+      if (!row.Amount || typeof row.Amount !== 'number') return;
+      
+      // The user used D/M/YYYY everywhere in Expanse sheet
+      let dateStr = parseExcelDate(row.Date, true);
+      entries.push({
         id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 9),
-        date: parseExcelDate(row.Date),
+        date: dateStr,
         amount: Number(row.Amount),
         category: row.Category || 'Other',
         description: String(row.Description || 'Imported Entry')
       });
-    }
-    if (expEntries.length > 0) {
-      for (let i = 0; i < expEntries.length; i += 500) {
-        const batch = expEntries.slice(i, i + 500);
+    });
+    if (entries.length > 0) {
+      for (let i = 0; i < entries.length; i += 500) {
+        const batch = entries.slice(i, i + 500);
         const { error } = await supabase.from('expenses').insert(batch);
         if (error) console.error('Error expenses batch:', error);
       }
-      console.log(`Inserted ${expEntries.length} expense entries.`);
+      console.log(`Inserted ${entries.length} expense entries.`);
     }
   }
 }
