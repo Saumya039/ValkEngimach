@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Camera, MapPin, Send, Watch, Activity, IndianRupee, CheckCircle, ChevronDown, Trash2, BookOpen, Edit2, XCircle } from 'lucide-react';
-import { addMachineLog, getProjects, getMachines, addExpense, suggestExpenseCategory, getOperatorNames, reportMaintenanceDone, getCashIn, getExpenses, getMachineLogs, updateMachineLog, updateExpense } from '../services/db';
+import { addMachineLog, getProjects, getMachines, addExpense, suggestExpenseCategory, getOperatorNames, getActivityTypes, reportMaintenanceDone, getCashIn, getExpenses, getMachineLogs, updateMachineLog, updateExpense } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatDate, MIN_RECORD_DATE } from '../utils/dateFormat';
@@ -13,6 +13,7 @@ export default function OperatorLog() {
   const [projects, setProjects] = useState([]);
   const [machines, setMachines] = useState([]);
   const [operatorNames, setOperatorNames] = useState([]);
+  const [activityTypes, setActivityTypes] = useState([]);
   const [location, setLocation] = useState(null);
   const [locationError, setLocationError] = useState('');
 
@@ -23,7 +24,7 @@ export default function OperatorLog() {
   const [operatorDropdownOpen, setOperatorDropdownOpen] = useState(false);
   const [machineId, setMachineId] = useState('');
   const [projectId, setProjectId] = useState('');
-  const [activityType, setActivityType] = useState('3. Machining');
+  const [activityType, setActivityType] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [notes, setNotes] = useState('');
@@ -53,6 +54,16 @@ export default function OperatorLog() {
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Last saved timestamps (per data entry page)
+  const [lastSavedMachineLog, setLastSavedMachineLog] = useState(localStorage.getItem('valk_last_saved_machine_log') || '');
+  const [lastSavedExpense, setLastSavedExpense] = useState(localStorage.getItem('valk_last_saved_expense') || '');
+
+  const formatSavedAt = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return `${formatDate(iso)}, ${d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
   // Maintenance Alert
   const [maintenanceAlerts, setMaintenanceAlerts] = useState([]);
 
@@ -60,21 +71,30 @@ export default function OperatorLog() {
     fetchData();
   }, [user, activeTab]);
 
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation not supported on this device');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => setLocationError(err.message || 'Location unavailable')
+    );
+  }, []);
+
   const fetchData = async () => {
     getProjects().then(setProjects);
     getOperatorNames().then(setOperatorNames);
+    getActivityTypes().then(setActivityTypes);
     refreshMachines();
 
-    const todayStr = new Date().toISOString().split('T')[0];
     const mLogs = await getMachineLogs();
-    const myLogs = mLogs.filter(l => l.operatorId === user.id && l.createdAt && l.createdAt.startsWith(todayStr));
-    setRecentMachineLogs(myLogs.reverse());
+    setRecentMachineLogs(mLogs);
 
     if (activeTab === 'expense' || activeTab === 'ledger') {
       const exps = await getExpenses();
-      const myExps = exps.filter(e => e.operatorId === user.id && e.createdAt && e.createdAt.startsWith(todayStr));
-      setRecentExpenses(myExps.reverse());
-      
+      setRecentExpenses(exps);
+
       getCashIn().then(setLedgerCashIn);
       setLedgerExpenses(exps);
     }
@@ -133,10 +153,10 @@ export default function OperatorLog() {
     return Math.round((mins / 60) * 100) / 100;
   };
   const computedHours = netHoursFromTimes();
+  const machineSubmitDisabled = submitting || computedHours <= 0;
 
   const handleMachineSubmit = async (e) => {
     e.preventDefault();
-    if (!editingLogId && (locationError || !location)) return alert("GPS Location is required to submit a new log.");
     if (selectedOperators.length === 0) return alert("Please select at least one operator.");
     if (!startTime || !endTime) return alert("Please enter machine start and end time.");
     if (computedHours <= 0) return alert("End time must be after start time.");
@@ -167,6 +187,9 @@ export default function OperatorLog() {
         await addMachineLog(payload);
         setSuccessMsg("Machine log saved!");
       }
+      const savedAt = new Date().toISOString();
+      localStorage.setItem('valk_last_saved_machine_log', savedAt);
+      setLastSavedMachineLog(savedAt);
       setTimeout(() => setSuccessMsg(''), 3000);
       setPhoto(null); setStartTime(''); setEndTime(''); setNotes('');
       fetchData();
@@ -240,6 +263,9 @@ export default function OperatorLog() {
         setSuccessMsg(`${lines.length} expense${lines.length > 1 ? 's' : ''} logged securely!`);
         setExpenseQueue([]);
       }
+      const savedAt = new Date().toISOString();
+      localStorage.setItem('valk_last_saved_expense', savedAt);
+      setLastSavedExpense(savedAt);
       setTimeout(() => setSuccessMsg(''), 3000);
       resetExpenseLine();
       fetchData();
@@ -265,6 +291,8 @@ export default function OperatorLog() {
     setEditingExpenseId(null);
     resetExpenseLine();
   };
+
+  const expenseSubmitDisabled = submitting || (!editingExpenseId && expenseQueue.length === 0 && (!expAmount || !expDescription));
 
   // Master Ledger (read-only) data
   const ledgerRows = (() => {
@@ -318,7 +346,8 @@ export default function OperatorLog() {
       <AnimatePresence mode="wait">
         {activeTab === 'machine' && (
           <motion.form key="machine" onSubmit={handleMachineSubmit} className="card" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
-            <h3 className="mb-4 text-gradient">Activity Log</h3>
+            <h3 className="mb-1 text-gradient">Activity Log</h3>
+            <p className="text-xs text-muted mb-4">Last data saved on Date: {lastSavedMachineLog ? formatSavedAt(lastSavedMachineLog) : 'Not saved yet'}</p>
 
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div className="input-group">
@@ -361,11 +390,8 @@ export default function OperatorLog() {
             <div className="input-group mb-4">
               <label>Activity Type</label>
               <select className="select" value={activityType} onChange={(e) => setActivityType(e.target.value)} required>
-                <option value="1. Tool Change (M/c OFF)">1. Tool Change (M/c OFF)</option>
-                <option value="2. Setup">2. Setup</option>
-                <option value="3. Machining">3. Machining</option>
-                <option value="4. Cleaning (M/c OFF)">4. Cleaning (M/c OFF)</option>
-                <option value="5. Inspection (M/c OFF)">5. Inspection (M/c OFF)</option>
+                <option value="">Select Activity Type...</option>
+                {activityTypes.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
 
@@ -423,7 +449,7 @@ export default function OperatorLog() {
             </div>
 
             <div className="flex gap-4">
-              <motion.button whileHover={!submitting ? { scale: 1.02 } : {}} whileTap={!submitting ? { scale: 0.98 } : {}} type="submit" className="btn btn-primary flex-1" disabled={submitting}>
+              <motion.button whileHover={!machineSubmitDisabled ? { scale: 1.02 } : {}} whileTap={!machineSubmitDisabled ? { scale: 0.98 } : {}} type="submit" className="btn btn-primary flex-1" disabled={machineSubmitDisabled}>
                 <Send size={18} /> {submitting ? 'Saving...' : (editingLogId ? 'Update Log' : 'Submit Log')}
               </motion.button>
               {editingLogId && (
@@ -432,10 +458,10 @@ export default function OperatorLog() {
                 </button>
               )}
             </div>
-            
+
             <div className="mt-8 pt-6 border-t border-gray-100">
-              <h4 className="font-bold mb-4">Today's Logs</h4>
-              <div className="flex flex-col gap-3">
+              <h4 className="font-bold mb-4">Machine Logs (tap edit icon to fix an entry)</h4>
+              <div className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1">
                 {recentMachineLogs.map(log => {
                   const m = machines.find(mac => mac.id === log.machineId);
                   const p = projects.find(proj => proj.id === log.projectId);
@@ -443,7 +469,7 @@ export default function OperatorLog() {
                     <div key={log.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50 flex justify-between items-center">
                       <div>
                         <p className="font-bold text-sm">{m?.name || log.machineId} &middot; {p?.name || log.projectId}</p>
-                        <p className="text-xs text-muted">{log.activityType} ({log.netHours} hrs)</p>
+                        <p className="text-xs text-muted">{formatDate(log.date)} &middot; {log.activityType} ({log.netHours} hrs)</p>
                       </div>
                       <button type="button" className="text-cta-color p-2" onClick={() => handleEditMachineLog(log)} disabled={submitting || editingLogId === log.id}>
                         <Edit2 size={16} />
@@ -451,7 +477,7 @@ export default function OperatorLog() {
                     </div>
                   );
                 })}
-                {recentMachineLogs.length === 0 && <p className="text-sm text-muted">No logs submitted today yet.</p>}
+                {recentMachineLogs.length === 0 && <p className="text-sm text-muted">No logs submitted yet.</p>}
               </div>
             </div>
           </motion.form>
@@ -459,7 +485,8 @@ export default function OperatorLog() {
 
         {activeTab === 'expense' && (
           <motion.form key="expense" onSubmit={handleExpenseSubmit} className="card" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-            <h3 className="mb-4 text-gradient">Cash Out / Debit</h3>
+            <h3 className="mb-1 text-gradient">Cash Out / Debit</h3>
+            <p className="text-xs text-muted mb-4">Last data saved on Date: {lastSavedExpense ? formatSavedAt(lastSavedExpense) : 'Not saved yet'}</p>
 
             {expenseQueue.length > 0 && (
               <div className="mb-6" style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.75rem' }}>
@@ -482,7 +509,7 @@ export default function OperatorLog() {
                 <label>Project (Optional)</label>
                 <select className="select" value={expProjectId} onChange={(e) => setExpProjectId(e.target.value)}>
                   <option value="">None / General</option>
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
             </div>
@@ -527,7 +554,7 @@ export default function OperatorLog() {
                   + Add Another Entry
                 </button>
               )}
-              <motion.button whileHover={!submitting ? { scale: 1.02 } : {}} whileTap={!submitting ? { scale: 0.98 } : {}} type="submit" className="btn btn-primary flex-1" disabled={submitting}>
+              <motion.button whileHover={!expenseSubmitDisabled ? { scale: 1.02 } : {}} whileTap={!expenseSubmitDisabled ? { scale: 0.98 } : {}} type="submit" className="btn btn-primary flex-1" disabled={expenseSubmitDisabled}>
                 <Send size={18} /> {submitting ? 'Saving...' : (editingExpenseId ? 'Update Expense' : `Submit${expenseQueue.length ? ` All (${expenseQueue.length + (expAmount && expDescription ? 1 : 0)})` : ''}`)}
               </motion.button>
               {editingExpenseId && (
@@ -536,17 +563,17 @@ export default function OperatorLog() {
                 </button>
               )}
             </div>
-            
+
             <div className="mt-8 pt-6 border-t border-gray-100">
-              <h4 className="font-bold mb-4">Today's Cash Out</h4>
-              <div className="flex flex-col gap-3">
+              <h4 className="font-bold mb-4">Cash Out Entries (tap edit icon to fix an entry)</h4>
+              <div className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1">
                 {recentExpenses.map(exp => {
                   const p = projects.find(proj => proj.id === exp.projectId);
                   return (
                     <div key={exp.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50 flex justify-between items-center">
                       <div>
                         <p className="font-bold text-sm">₹{exp.amount} &middot; {exp.category}</p>
-                        <p className="text-xs text-muted">{exp.description}</p>
+                        <p className="text-xs text-muted">{formatDate(exp.date)} &middot; {exp.description}</p>
                         {p && <p className="text-xs text-cta-color mt-1">{p.name}</p>}
                       </div>
                       <button type="button" className="text-cta-color p-2" onClick={() => handleEditExpense(exp)} disabled={submitting || editingExpenseId === exp.id}>
@@ -555,7 +582,7 @@ export default function OperatorLog() {
                     </div>
                   );
                 })}
-                {recentExpenses.length === 0 && <p className="text-sm text-muted">No expenses submitted today yet.</p>}
+                {recentExpenses.length === 0 && <p className="text-sm text-muted">No expenses submitted yet.</p>}
               </div>
             </div>
           </motion.form>

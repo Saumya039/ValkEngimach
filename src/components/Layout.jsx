@@ -1,6 +1,6 @@
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogOut, Home, ClipboardList, Wallet } from 'lucide-react';
+import { LogOut, Home, Wallet } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const Layout = () => {
@@ -29,14 +29,11 @@ export const Layout = () => {
             <div className="navbar-nav">
               {user.role === 'admin' ? (
                 <>
-                  <Link to="/admin" className={`nav-link ${location.pathname === '/admin' ? 'active' : ''}`}>
-                    <Home size={18} /> Dashboard
-                  </Link>
-                  <Link to="/admin/logs" className={`nav-link ${location.pathname === '/admin/logs' ? 'active' : ''}`}>
-                    <ClipboardList size={18} /> Logs
+                  <Link to="/admin" className={`nav-link ${location.pathname === '/admin' || location.pathname === '/admin/logs' ? 'active' : ''}`}>
+                    <Home size={18} /> Home
                   </Link>
                   <Link to="/admin/cash" className={`nav-link ${location.pathname === '/admin/cash' ? 'active' : ''}`}>
-                    <Wallet size={18} /> Cash
+                    <Wallet size={18} /> Petty Cash Credit
                   </Link>
                 </>
               ) : (

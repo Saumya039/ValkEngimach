@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCashIn, getExpenses, addCashIn, updateCashIn, updateExpense } from '../services/db';
+import { getCashIn, getExpenses, addCashIn, updateCashIn, updateExpense, addExpense, suggestExpenseCategory, getProjects } from '../services/db';
 import { Plus, ArrowDownRight, ArrowUpRight, DollarSign, Download, FileText, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { exportToCsv } from '../utils/exportCsv';
@@ -7,13 +7,16 @@ import { exportToPdf } from '../utils/exportPdf';
 import { formatDate, isWithinRange, MIN_RECORD_DATE } from '../utils/dateFormat';
 import DateRangeFilter from '../components/DateRangeFilter';
 import Modal from '../components/Modal';
+import { useAuth } from '../context/AuthContext';
 
 
 export default function CashRegister() {
+  const { user } = useAuth();
   const [cashInLogs, setCashInLogs] = useState([]);
   const [expenseLogs, setExpenseLogs] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Admin Cash In Form state
   const [cashDate, setCashDate] = useState(new Date().toISOString().split('T')[0]);
   const [amount, setAmount] = useState('');
@@ -24,12 +27,21 @@ export default function CashRegister() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
+  // Admin Cash Out / Debit Form state
+  const [debitDate, setDebitDate] = useState(new Date().toISOString().split('T')[0]);
+  const [debitAmount, setDebitAmount] = useState('');
+  const [debitDescription, setDebitDescription] = useState('');
+  const [debitCategory, setDebitCategory] = useState('Not clear');
+  const [debitProjectId, setDebitProjectId] = useState('');
+  const [showDebitForm, setShowDebitForm] = useState(false);
+
   // Editing state
   const [editingLog, setEditingLog] = useState(null);
   const [editLogData, setEditLogData] = useState({});
 
   useEffect(() => {
     fetchLogs();
+    getProjects().then(setProjects);
   }, []);
 
   async function fetchLogs() {
@@ -54,6 +66,31 @@ export default function CashRegister() {
     setRemarks('');
     setCashDate(new Date().toISOString().split('T')[0]);
     setShowForm(false);
+    fetchLogs();
+  };
+
+  const onDebitDescriptionChange = (text) => {
+    setDebitDescription(text);
+    setDebitCategory(suggestExpenseCategory(text));
+  };
+
+  const handleDebitSubmit = async (e) => {
+    e.preventDefault();
+    await addExpense({
+      date: debitDate,
+      amount: Number(debitAmount),
+      description: debitDescription,
+      category: debitCategory,
+      projectId: debitProjectId || null,
+      operatorId: user.id,
+      operatorName: user.name
+    });
+    setDebitAmount('');
+    setDebitDescription('');
+    setDebitCategory('Not clear');
+    setDebitProjectId('');
+    setDebitDate(new Date().toISOString().split('T')[0]);
+    setShowDebitForm(false);
     fetchLogs();
   };
 
@@ -127,11 +164,77 @@ export default function CashRegister() {
           <button className="btn btn-outline" onClick={handleExportPdf}>
             <FileText size={16} /> PDF
           </button>
+          <button className="btn btn-outline" onClick={() => setShowDebitForm(!showDebitForm)}>
+            <Plus size={16} /> Log Cash Out
+          </button>
           <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
             <Plus size={16} /> Log Cash In
           </button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showDebitForm && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-8"
+          >
+            <form className="card" onSubmit={handleDebitSubmit}>
+              <h3 className="mb-4 text-gradient flex items-center gap-2"><ArrowUpRight size={18} color="#f43f5e" /> Log Cash Out / Debit</h3>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="input-group">
+                  <label>Date</label>
+                  <input type="date" className="input" min={MIN_RECORD_DATE} value={debitDate} onChange={(e) => setDebitDate(e.target.value)} required />
+                </div>
+                <div className="input-group">
+                  <label>Amount (₹)</label>
+                  <input type="number" step="0.01" className="input font-mono font-bold" value={debitAmount} onChange={(e) => setDebitAmount(e.target.value)} required />
+                </div>
+              </div>
+              <div className="input-group mb-4">
+                <label>Project (Optional)</label>
+                <select className="select" value={debitProjectId} onChange={(e) => setDebitProjectId(e.target.value)}>
+                  <option value="">None / General</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div className="input-group mb-4">
+                <label>Description</label>
+                <input type="text" className="input" placeholder="e.g. bought 10mm drill bits" value={debitDescription} onChange={(e) => onDebitDescriptionChange(e.target.value)} required />
+              </div>
+              <div className="input-group mb-6">
+                <label>Category</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <select className="select" style={{ flex: 1 }} value={debitCategory} onChange={(e) => setDebitCategory(e.target.value)}>
+                    <option value="Not clear">Not clear</option>
+                    <option value="Asset">Asset</option>
+                    <option value="Advance Salary">Advance Salary</option>
+                    <option value="Job work">Job work</option>
+                    <option value="Meal and Tea etc">Meal and Tea etc</option>
+                    <option value="Non Production Consumable">Non Production Consumable</option>
+                    <option value="Production Consumable">Production Consumable</option>
+                    <option value="Travel Allowance">Travel Allowance</option>
+                    <option value="Maintenance">Maintenance</option>
+                    <option value="Transportation">Transportation</option>
+                    <option value="Tools and Hardware">Tools and Hardware</option>
+                    <option value="Raw Material">Raw Material</option>
+                    <option value="Other">Other</option>
+                  </select>
+                  {debitCategory !== 'Not clear' && (
+                    <span className="badge badge-success">✨ AI Tagged</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <button type="submit" className="btn btn-primary flex-1">Save Entry</button>
+                <button type="button" className="btn btn-outline flex-1" onClick={() => setShowDebitForm(false)}>Cancel</button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showForm && (

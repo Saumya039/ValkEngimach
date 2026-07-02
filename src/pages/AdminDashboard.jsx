@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { getFinancialSummary, getProjects, addProject, deleteProject, updateProject, getMachines, updateMachineMaintenance, getMachineLogs, getExpenses, getCashIn, getOperatorNames, addOperatorName, removeOperatorName, updateOperatorName, getCashAlertThreshold, setCashAlertThreshold, addForecast, getForecasts, deleteForecast } from '../services/db';
+import { getFinancialSummary, getProjects, addProject, deleteProject, updateProject, getMachines, addMachine, updateMachineName, updateMachineMaintenance, getMachineLogs, updateMachineLog, getExpenses, getCashIn, getOperatorNames, addOperatorName, removeOperatorName, updateOperatorName, getActivityTypes, addActivityType, removeActivityType, updateActivityType, getCashAlertThreshold, setCashAlertThreshold, addForecast, getForecasts, deleteForecast } from '../services/db';
 import { Activity, Wrench, FolderOpen, Calendar, ArrowLeft, Download, FileText, Users, X, AlertTriangle, Camera, Gauge, Trash2, Edit2, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
@@ -39,6 +39,13 @@ export default function AdminDashboard() {
   const [newMaintType, setNewMaintType] = useState('');
   const [operatorNames, setOperatorNames] = useState([]);
   const [newOperatorName, setNewOperatorName] = useState('');
+  const [newMachineName, setNewMachineName] = useState('');
+  const [editingMachineNameId, setEditingMachineNameId] = useState(null);
+  const [editingMachineNameValue, setEditingMachineNameValue] = useState('');
+  const [activityTypesList, setActivityTypesList] = useState([]);
+  const [newActivityType, setNewActivityType] = useState('');
+  const [editingActivityTypeOld, setEditingActivityTypeOld] = useState(null);
+  const [editingActivityTypeNew, setEditingActivityTypeNew] = useState('');
 
   // Cash alert
   const [cashAlertThreshold, setCashAlertThresholdState] = useState(getCashAlertThreshold());
@@ -91,6 +98,8 @@ export default function AdminDashboard() {
     setCashInLogs(cash);
     const ops = await getOperatorNames();
     setOperatorNames(ops);
+    const acts = await getActivityTypes();
+    setActivityTypesList(acts);
     const fcsts = await getForecasts();
     setForecasts(fcsts);
   }
@@ -113,6 +122,43 @@ export default function AdminDashboard() {
     if (!editingOperatorNameNew.trim()) return;
     await updateOperatorName(oldName, editingOperatorNameNew.trim());
     setEditingOperatorNameOld(null);
+    fetchData();
+  };
+
+  const handleAddMachine = async (e) => {
+    e.preventDefault();
+    if (!newMachineName.trim()) return;
+    await addMachine(newMachineName.trim());
+    setNewMachineName('');
+    fetchData();
+  };
+
+  const handleEditMachineNameSubmit = async (e, id) => {
+    e.preventDefault();
+    if (!editingMachineNameValue.trim()) return;
+    await updateMachineName(id, editingMachineNameValue.trim());
+    setEditingMachineNameId(null);
+    fetchData();
+  };
+
+  const handleAddActivityType = async (e) => {
+    e.preventDefault();
+    if (!newActivityType.trim()) return;
+    await addActivityType(newActivityType.trim());
+    setNewActivityType('');
+    fetchData();
+  };
+
+  const handleRemoveActivityType = async (name) => {
+    await removeActivityType(name);
+    fetchData();
+  };
+
+  const handleEditActivityTypeSubmit = async (e, oldName) => {
+    e.preventDefault();
+    if (!editingActivityTypeNew.trim()) return;
+    await updateActivityType(oldName, editingActivityTypeNew.trim());
+    setEditingActivityTypeOld(null);
     fetchData();
   };
 
@@ -327,25 +373,29 @@ export default function AdminDashboard() {
   const handleExportMachineLogs = () => {
     exportToCsv('machine_activity_log.csv', visibleMachineLogs.map(l => ({
       date: formatDate(l.date), operator: operatorDisplay(l), activityType: l.activityType,
-      machine: l.machineId, project: l.projectId, hours: l.netHours, notes: l.notes || ''
+      machine: machines.find(m => m.id === l.machineId)?.name || l.machineId,
+      project: projects.find(p => p.id === l.projectId)?.name || l.projectId,
+      hours: l.netHours, notes: l.notes || ''
     })));
   };
 
   const handleExportMachineLogsPdf = () => {
     exportToPdf('machine_activity_log.pdf', 'Machine Log', ['Date', 'Operator', 'Activity', 'Machine', 'Project', 'Duration'],
-      visibleMachineLogs.map(l => [formatDate(l.date), operatorDisplay(l), l.activityType || 'N/A', l.machineId, l.projectId, l.netHours]));
+      visibleMachineLogs.map(l => [formatDate(l.date), operatorDisplay(l), l.activityType || 'N/A',
+        machines.find(m => m.id === l.machineId)?.name || l.machineId,
+        projects.find(p => p.id === l.projectId)?.name || l.projectId, l.netHours]));
   };
 
   const handleExportExpenses = () => {
     exportToCsv('expense_ledger.csv', visibleExpenses.map(e => ({
       date: formatDate(e.date), description: e.description, category: e.category,
-      project: e.projectId || '', amount: e.amount, operator: e.operatorName || ''
+      project: projects.find(p => p.id === e.projectId)?.name || '', amount: e.amount, operator: e.operatorName || ''
     })));
   };
 
   const handleExportExpensesPdf = () => {
     exportToPdf('expense_ledger.pdf', 'Expense Ledger', ['Date', 'Description', 'Category', 'Project', 'Amount'],
-      visibleExpenses.map(e => [formatDate(e.date), e.description, e.category, e.projectId || '-', `Rs ${Number(e.amount).toLocaleString()}`]));
+      visibleExpenses.map(e => [formatDate(e.date), e.description, e.category, projects.find(p => p.id === e.projectId)?.name || '-', `Rs ${Number(e.amount).toLocaleString()}`]));
   };
 
   return (
@@ -379,13 +429,13 @@ export default function AdminDashboard() {
 
       <div className="flex flex-wrap gap-4 mb-8">
         <button className={`btn ${activeTab === 'reports' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setActiveTab('reports'); setSelectedProject(null);}}>
-          <Activity size={16} /> Home
+          <Activity size={16} /> Synthesis - Petty Cash
         </button>
         <button className={`btn ${activeTab === 'ledgers' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setActiveTab('ledgers'); setSelectedProject(null);}}>
-          <FolderOpen size={16} /> Projectwise Machine Log
+          <FolderOpen size={16} /> Synthesis - Machine Log
         </button>
         <button className={`btn ${activeTab === 'projects' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setActiveTab('projects'); setSelectedProject(null);}}>
-          <Activity size={16} /> Projects
+          <Activity size={16} /> Data Entry
         </button>
         <button className={`btn ${activeTab === 'machines' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setActiveTab('machines'); setSelectedProject(null);}}>
           <Wrench size={16} /> Machine Maintenance
@@ -503,7 +553,7 @@ export default function AdminDashboard() {
                         <td className="py-3 px-4 text-sm">{formatDate(exp.date)}</td>
                         <td className="py-3 px-4">{exp.description}</td>
                         <td className="py-3 px-4"><span className="badge">{exp.category}</span></td>
-                        <td className="py-3 px-4 text-muted">{exp.projectId || '-'}</td>
+                        <td className="py-3 px-4 text-muted">{projects.find(p => p.id === exp.projectId)?.name || '-'}</td>
                         <td className="py-3 px-4 text-right font-mono font-bold text-danger-color">₹{Number(exp.amount).toLocaleString()}</td>
                       </tr>
                     ))}
@@ -710,12 +760,89 @@ export default function AdminDashboard() {
                           </>
                         )}
                       </div>
-                      <div className="flex justify-between items-center mt-auto">
-                        <span className="badge font-mono">{p.id}</span>
+                      <div className="flex justify-end items-center mt-auto">
                         <span className="text-xs text-cta-color">View Details &rarr;</span>
                       </div>
                     </div>
                   ))}
+                </div>
+
+                <div className="card mt-8">
+                  <h3 className="mb-4 flex items-center gap-2"><Users size={18} /> Operators (Admin)</h3>
+                  <p className="text-sm text-muted mb-4">Operators don't get individual logins — they just pick their name from this list when logging activity.</p>
+                  <form onSubmit={handleAddOperator} className="flex gap-4 mb-4">
+                    <input type="text" className="input" placeholder="e.g. Sapan Desai" value={newOperatorName} onChange={(e) => setNewOperatorName(e.target.value)} />
+                    <button type="submit" className="btn btn-outline whitespace-nowrap">Add Operator</button>
+                  </form>
+                  <div className="flex flex-wrap gap-2">
+                    {operatorNames.map(n => (
+                      editingOperatorNameOld === n ? (
+                        <form key={n} onSubmit={(e) => handleEditOperatorSubmit(e, n)} className="flex items-center gap-1">
+                          <input type="text" className="input" style={{ padding: '0.2rem 0.5rem', width: '150px' }} value={editingOperatorNameNew} onChange={(e) => setEditingOperatorNameNew(e.target.value)} autoFocus />
+                          <button type="submit" className="btn btn-primary" style={{ padding: '0.2rem 0.5rem' }}>Save</button>
+                          <button type="button" className="btn btn-outline" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setEditingOperatorNameOld(null)}>Cancel</button>
+                        </form>
+                      ) : (
+                        <span key={n} className="badge bg-gray-100 text-gray-700 border border-gray-300 flex items-center gap-2">
+                          {n}
+                          <Edit2 size={12} className="cursor-pointer text-gray-500 hover:text-gray-800" onClick={() => { setEditingOperatorNameOld(n); setEditingOperatorNameNew(n); }} />
+                          <X size={12} className="cursor-pointer text-gray-500 hover:text-red-500" onClick={() => handleRemoveOperator(n)} />
+                        </span>
+                      )
+                    ))}
+                    {operatorNames.length === 0 && <span className="text-sm text-muted">No operators added yet.</span>}
+                  </div>
+                </div>
+
+                <div className="card mt-8">
+                  <h3 className="mb-4 flex items-center gap-2"><Wrench size={18} /> Machine Names (Admin)</h3>
+                  <form onSubmit={handleAddMachine} className="flex gap-4 mb-4">
+                    <input type="text" className="input" placeholder="e.g. Router 03" value={newMachineName} onChange={(e) => setNewMachineName(e.target.value)} />
+                    <button type="submit" className="btn btn-outline whitespace-nowrap">Add Machine</button>
+                  </form>
+                  <div className="flex flex-wrap gap-2">
+                    {machines.map(m => (
+                      editingMachineNameId === m.id ? (
+                        <form key={m.id} onSubmit={(e) => handleEditMachineNameSubmit(e, m.id)} className="flex items-center gap-1">
+                          <input type="text" className="input" style={{ padding: '0.2rem 0.5rem', width: '150px' }} value={editingMachineNameValue} onChange={(e) => setEditingMachineNameValue(e.target.value)} autoFocus />
+                          <button type="submit" className="btn btn-primary" style={{ padding: '0.2rem 0.5rem' }}>Save</button>
+                          <button type="button" className="btn btn-outline" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setEditingMachineNameId(null)}>Cancel</button>
+                        </form>
+                      ) : (
+                        <span key={m.id} className="badge bg-gray-100 text-gray-700 border border-gray-300 flex items-center gap-2">
+                          {m.name}
+                          <Edit2 size={12} className="cursor-pointer text-gray-500 hover:text-gray-800" onClick={() => { setEditingMachineNameId(m.id); setEditingMachineNameValue(m.name); }} />
+                        </span>
+                      )
+                    ))}
+                    {machines.length === 0 && <span className="text-sm text-muted">No machines added yet.</span>}
+                  </div>
+                </div>
+
+                <div className="card mt-8">
+                  <h3 className="mb-4 flex items-center gap-2"><Activity size={18} /> Activity Types (Admin)</h3>
+                  <form onSubmit={handleAddActivityType} className="flex gap-4 mb-4">
+                    <input type="text" className="input" placeholder="e.g. Quality Check" value={newActivityType} onChange={(e) => setNewActivityType(e.target.value)} />
+                    <button type="submit" className="btn btn-outline whitespace-nowrap">Add Activity Type</button>
+                  </form>
+                  <div className="flex flex-wrap gap-2">
+                    {activityTypesList.map(t => (
+                      editingActivityTypeOld === t ? (
+                        <form key={t} onSubmit={(e) => handleEditActivityTypeSubmit(e, t)} className="flex items-center gap-1">
+                          <input type="text" className="input" style={{ padding: '0.2rem 0.5rem', width: '200px' }} value={editingActivityTypeNew} onChange={(e) => setEditingActivityTypeNew(e.target.value)} autoFocus />
+                          <button type="submit" className="btn btn-primary" style={{ padding: '0.2rem 0.5rem' }}>Save</button>
+                          <button type="button" className="btn btn-outline" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setEditingActivityTypeOld(null)}>Cancel</button>
+                        </form>
+                      ) : (
+                        <span key={t} className="badge bg-gray-100 text-gray-700 border border-gray-300 flex items-center gap-2">
+                          {t}
+                          <Edit2 size={12} className="cursor-pointer text-gray-500 hover:text-gray-800" onClick={() => { setEditingActivityTypeOld(t); setEditingActivityTypeNew(t); }} />
+                          <X size={12} className="cursor-pointer text-gray-500 hover:text-red-500" onClick={() => handleRemoveActivityType(t)} />
+                        </span>
+                      )
+                    ))}
+                    {activityTypesList.length === 0 && <span className="text-sm text-muted">No activity types added yet.</span>}
+                  </div>
                 </div>
               </>
             ) : (
@@ -724,7 +851,6 @@ export default function AdminDashboard() {
                   <button className="btn btn-outline p-2" onClick={() => setSelectedProject(null)}><ArrowLeft size={18} /></button>
                   <div>
                     <h2 className="text-2xl font-bold">{selectedProject.name}</h2>
-                    <p className="text-muted font-mono">ID: {selectedProject.id}</p>
                   </div>
                 </div>
 
@@ -735,7 +861,7 @@ export default function AdminDashboard() {
                       {machineLogs.filter(l => l.projectId === selectedProject.id).map(log => (
                         <div key={log.id} className="p-3 bg-gray-50 rounded border text-sm flex justify-between">
                           <div>
-                            <p className="font-bold">{log.machineId} <span className="text-muted font-normal">({log.activityType})</span></p>
+                            <p className="font-bold">{machines.find(m => m.id === log.machineId)?.name || log.machineId} <span className="text-muted font-normal">({log.activityType})</span></p>
                             <p className="text-xs text-gray-500">{log.endDate && log.endDate !== log.date ? `${formatDate(log.date)} - ${formatDate(log.endDate)}` : formatDate(log.date)} | {operatorDisplay(log)}</p>
                           </div>
                           <div className="font-mono font-bold text-cta-color">{log.netHours}</div>
@@ -781,40 +907,13 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <div className="card mb-6">
-              <h3 className="mb-4 flex items-center gap-2"><Users size={18} /> Operators (Admin)</h3>
-              <p className="text-sm text-muted mb-4">Operators don't get individual logins — they just pick their name from this list when logging activity.</p>
-              <form onSubmit={handleAddOperator} className="flex gap-4 mb-4">
-                <input type="text" className="input" placeholder="e.g. Sapan Desai" value={newOperatorName} onChange={(e) => setNewOperatorName(e.target.value)} />
-                <button type="submit" className="btn btn-outline whitespace-nowrap">Add Operator</button>
-              </form>
-              <div className="flex flex-wrap gap-2">
-                {operatorNames.map(n => (
-                  editingOperatorNameOld === n ? (
-                    <form key={n} onSubmit={(e) => handleEditOperatorSubmit(e, n)} className="flex items-center gap-1">
-                      <input type="text" className="input" style={{ padding: '0.2rem 0.5rem', width: '150px' }} value={editingOperatorNameNew} onChange={(e) => setEditingOperatorNameNew(e.target.value)} autoFocus />
-                      <button type="submit" className="btn btn-primary" style={{ padding: '0.2rem 0.5rem' }}>Save</button>
-                      <button type="button" className="btn btn-outline" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setEditingOperatorNameOld(null)}>Cancel</button>
-                    </form>
-                  ) : (
-                    <span key={n} className="badge bg-gray-100 text-gray-700 border border-gray-300 flex items-center gap-2">
-                      {n}
-                      <Edit2 size={12} className="cursor-pointer text-gray-500 hover:text-gray-800" onClick={() => { setEditingOperatorNameOld(n); setEditingOperatorNameNew(n); }} />
-                      <X size={12} className="cursor-pointer text-gray-500 hover:text-red-500" onClick={() => handleRemoveOperator(n)} />
-                    </span>
-                  )
-                ))}
-                {operatorNames.length === 0 && <span className="text-sm text-muted">No operators added yet.</span>}
-              </div>
-            </div>
-
             <div className="card">
               <h3 className="mb-6">Machine Activity Log</h3>
               <div className="grid gap-4">
                 {machines.map(m => (
                   <div key={m.id} className="p-4" style={{ background: 'var(--surface-color)', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>
-                      <h4 className="font-bold text-lg mb-1">{m.name} <span className="text-muted font-mono text-sm ml-2">{m.id}</span>
+                      <h4 className="font-bold text-lg mb-1">{m.name}
                         {m.pendingReview && <span className="badge badge-success ml-2" style={{ fontSize: '0.7rem' }}>Operator marked done — review schedule</span>}
                       </h4>
                       <p className="text-sm text-muted mb-1 flex items-center gap-2"><Wrench size={14} /> Last Maintenance: {formatDate(m.lastMaintenance)}</p>
