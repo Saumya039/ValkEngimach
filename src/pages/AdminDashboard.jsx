@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { getFinancialSummary, getProjects, addProject, deleteProject, getMachines, updateMachineMaintenance, getMachineLogs, getExpenses, getCashIn, getOperatorNames, addOperatorName, removeOperatorName, getCashAlertThreshold, setCashAlertThreshold } from '../services/db';
-import { Activity, Wrench, FolderOpen, Calendar, ArrowLeft, Download, FileText, Users, X, AlertTriangle, Camera, Gauge, Trash2 } from 'lucide-react';
+import { getFinancialSummary, getProjects, addProject, deleteProject, updateProject, getMachines, updateMachineMaintenance, getMachineLogs, getExpenses, getCashIn, getOperatorNames, addOperatorName, removeOperatorName, updateOperatorName, getCashAlertThreshold, setCashAlertThreshold } from '../services/db';
+import { Activity, Wrench, FolderOpen, Calendar, ArrowLeft, Download, FileText, Users, X, AlertTriangle, Camera, Gauge, Trash2, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { exportToCsv } from '../utils/exportCsv';
@@ -23,8 +23,11 @@ export default function AdminDashboard() {
   const [allExpenses, setAllExpenses] = useState([]);
   const [cashInLogs, setCashInLogs] = useState([]);
 
-  // Forms
   const [newProjectName, setNewProjectName] = useState('');
+  const [editingProjectId, setEditingProjectId] = useState(null);
+  const [editingProjectName, setEditingProjectName] = useState('');
+  const [editingOperatorNameOld, setEditingOperatorNameOld] = useState(null);
+  const [editingOperatorNameNew, setEditingOperatorNameNew] = useState('');
   const [editingMachine, setEditingMachine] = useState(null);
   const [newMaintenanceDate, setNewMaintenanceDate] = useState('');
 
@@ -87,6 +90,14 @@ export default function AdminDashboard() {
     fetchData();
   };
 
+  const handleEditOperatorSubmit = async (e, oldName) => {
+    e.preventDefault();
+    if (!editingOperatorNameNew.trim()) return;
+    await updateOperatorName(oldName, editingOperatorNameNew.trim());
+    setEditingOperatorNameOld(null);
+    fetchData();
+  };
+
   const handleAddProject = async (e) => {
     e.preventDefault();
     if (!newProjectName.trim()) return;
@@ -103,6 +114,16 @@ export default function AdminDashboard() {
       const updated = await getProjects();
       setProjects(updated);
     }
+  };
+
+  const handleEditProjectSubmit = async (e, id) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!editingProjectName.trim()) return;
+    await updateProject(id, editingProjectName.trim());
+    setEditingProjectId(null);
+    const updated = await getProjects();
+    setProjects(updated);
   };
 
   const handleUpdateMaintenance = async (e) => {
@@ -584,14 +605,33 @@ export default function AdminDashboard() {
                       onClick={() => setSelectedProject(p)}
                     >
                       <div className="flex justify-between items-start mb-2">
-                        <span className="font-bold text-lg">{p.name}</span>
-                        <button 
-                          className="text-danger-color hover:bg-red-50 p-1 rounded"
-                          onClick={(e) => handleDeleteProject(p.id, e)}
-                          title="Delete Project"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {editingProjectId === p.id ? (
+                          <form onSubmit={(e) => handleEditProjectSubmit(e, p.id)} className="flex items-center gap-2 w-full" onClick={(e) => e.stopPropagation()}>
+                            <input type="text" className="input" style={{ padding: '0.2rem 0.5rem' }} value={editingProjectName} onChange={(e) => setEditingProjectName(e.target.value)} autoFocus />
+                            <button type="submit" className="btn btn-primary" style={{ padding: '0.2rem 0.5rem' }}>Save</button>
+                            <button type="button" className="btn btn-outline" style={{ padding: '0.2rem 0.5rem' }} onClick={(e) => { e.stopPropagation(); setEditingProjectId(null); }}>Cancel</button>
+                          </form>
+                        ) : (
+                          <>
+                            <span className="font-bold text-lg">{p.name}</span>
+                            <div className="flex gap-2">
+                              <button 
+                                className="text-gray-500 hover:bg-gray-100 p-1 rounded"
+                                onClick={(e) => { e.stopPropagation(); setEditingProjectId(p.id); setEditingProjectName(p.name); }}
+                                title="Edit Project"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button 
+                                className="text-danger-color hover:bg-red-50 p-1 rounded"
+                                onClick={(e) => handleDeleteProject(p.id, e)}
+                                title="Delete Project"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                       <div className="flex justify-between items-center mt-auto">
                         <span className="badge font-mono">{p.id}</span>
@@ -673,10 +713,19 @@ export default function AdminDashboard() {
               </form>
               <div className="flex flex-wrap gap-2">
                 {operatorNames.map(n => (
-                  <span key={n} className="badge bg-gray-100 text-gray-700 border border-gray-300 flex items-center gap-2">
-                    {n}
-                    <X size={12} className="cursor-pointer" onClick={() => handleRemoveOperator(n)} />
-                  </span>
+                  editingOperatorNameOld === n ? (
+                    <form key={n} onSubmit={(e) => handleEditOperatorSubmit(e, n)} className="flex items-center gap-1">
+                      <input type="text" className="input" style={{ padding: '0.2rem 0.5rem', width: '150px' }} value={editingOperatorNameNew} onChange={(e) => setEditingOperatorNameNew(e.target.value)} autoFocus />
+                      <button type="submit" className="btn btn-primary" style={{ padding: '0.2rem 0.5rem' }}>Save</button>
+                      <button type="button" className="btn btn-outline" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setEditingOperatorNameOld(null)}>Cancel</button>
+                    </form>
+                  ) : (
+                    <span key={n} className="badge bg-gray-100 text-gray-700 border border-gray-300 flex items-center gap-2">
+                      {n}
+                      <Edit2 size={12} className="cursor-pointer text-gray-500 hover:text-gray-800" onClick={() => { setEditingOperatorNameOld(n); setEditingOperatorNameNew(n); }} />
+                      <X size={12} className="cursor-pointer text-gray-500 hover:text-red-500" onClick={() => handleRemoveOperator(n)} />
+                    </span>
+                  )
                 ))}
                 {operatorNames.length === 0 && <span className="text-sm text-muted">No operators added yet.</span>}
               </div>

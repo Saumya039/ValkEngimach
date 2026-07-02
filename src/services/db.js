@@ -85,6 +85,16 @@ export const deleteProject = async (id) => {
   setTable('projects', updatedProjects);
 };
 
+export const updateProject = async (id, newName) => {
+  await delay();
+  const projects = getTable('projects');
+  const index = projects.findIndex(p => p.id === id);
+  if (index > -1) {
+    projects[index].name = newName;
+    setTable('projects', projects);
+  }
+};
+
 // Machines
 export const getMachines = async () => {
   await delay(100);
@@ -148,11 +158,23 @@ export const addOperatorName = async (name) => {
   }
   return names;
 };
+
+export const updateOperatorName = async (oldName, newName) => {
+  await delay();
+  const names = getTable('operator_names') || [];
+  const index = names.indexOf(oldName);
+  if (index > -1 && !names.includes(newName) && newName.trim() !== '') {
+    names[index] = newName.trim();
+    setTable('operator_names', names);
+  }
+};
+
 export const removeOperatorName = async (name) => {
   await delay();
-  const names = (getTable('operator_names') || []).filter(n => n !== name);
-  setTable('operator_names', names);
-  return names;
+  const names = getTable('operator_names') || [];
+  const updated = names.filter(n => n !== name);
+  setTable('operator_names', updated);
+  return updated;
 };
 
 // --- CASH SYSTEM ---
