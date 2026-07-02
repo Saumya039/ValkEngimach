@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { getFinancialSummary, getProjects, addProject, getMachines, updateMachineMaintenance, getMachineLogs, getExpenses, getCashIn, getOperatorNames, addOperatorName, removeOperatorName, getCashAlertThreshold, setCashAlertThreshold } from '../services/db';
-import { Activity, Wrench, FolderOpen, Calendar, ArrowLeft, Download, FileText, Users, X, AlertTriangle, Camera, Gauge } from 'lucide-react';
+import { getFinancialSummary, getProjects, addProject, deleteProject, getMachines, updateMachineMaintenance, getMachineLogs, getExpenses, getCashIn, getOperatorNames, addOperatorName, removeOperatorName, getCashAlertThreshold, setCashAlertThreshold } from '../services/db';
+import { Activity, Wrench, FolderOpen, Calendar, ArrowLeft, Download, FileText, Users, X, AlertTriangle, Camera, Gauge, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { exportToCsv } from '../utils/exportCsv';
@@ -89,10 +89,20 @@ export default function AdminDashboard() {
 
   const handleAddProject = async (e) => {
     e.preventDefault();
-    if (!newProjectName) return;
-    await addProject(newProjectName);
+    if (!newProjectName.trim()) return;
+    await addProject(newProjectName.trim());
     setNewProjectName('');
-    fetchData();
+    const updated = await getProjects();
+    setProjects(updated);
+  };
+
+  const handleDeleteProject = async (id, e) => {
+    e.stopPropagation(); // prevent card click
+    if (window.confirm('Are you sure you want to delete this project?')) {
+      await deleteProject(id);
+      const updated = await getProjects();
+      setProjects(updated);
+    }
   };
 
   const handleUpdateMaintenance = async (e) => {
@@ -573,7 +583,16 @@ export default function AdminDashboard() {
                       style={{ padding: '1.5rem', minHeight: '120px' }}
                       onClick={() => setSelectedProject(p)}
                     >
-                      <span className="font-bold text-lg mb-2">{p.name}</span>
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="font-bold text-lg">{p.name}</span>
+                        <button 
+                          className="text-danger-color hover:bg-red-50 p-1 rounded"
+                          onClick={(e) => handleDeleteProject(p.id, e)}
+                          title="Delete Project"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                       <div className="flex justify-between items-center mt-auto">
                         <span className="badge font-mono">{p.id}</span>
                         <span className="text-xs text-cta-color">View Details &rarr;</span>

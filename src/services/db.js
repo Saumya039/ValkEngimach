@@ -23,11 +23,7 @@ export const initializeDB = () => {
   ]);
 
   if (!getTable('projects')) {
-    setTable('projects', [
-      { id: 'P-1', name: 'Ply Cutter - CT' },
-      { id: 'P-2', name: 'Siddharth' },
-      { id: 'P-3', name: 'Factory Floor Maintenance' }
-    ]);
+    setTable('projects', []);
   }
   if (!getTable('machines')) {
     const today = new Date();
@@ -80,6 +76,13 @@ export const addProject = async (name) => {
   projects.push(newProj);
   setTable('projects', projects);
   return newProj;
+};
+
+export const deleteProject = async (id) => {
+  await delay();
+  const projects = getTable('projects');
+  const updatedProjects = projects.filter(p => p.id !== id);
+  setTable('projects', updatedProjects);
 };
 
 // Machines
