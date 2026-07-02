@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Lock } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -96,7 +96,9 @@ export default function Login() {
 
       <footer style={{ position: 'absolute', bottom: '2rem', textAlign: 'center', fontSize: '0.8rem', color: 'var(--muted-color)', opacity: 0.8, width: '100%' }}>
         <p>© 2026 Valk Engimach Private Limited</p>
-        <p style={{ marginTop: '0.5rem' }}>Privacy Policy | Disclaimer, as per all indian goverment norms</p>
+        <p style={{ marginTop: '0.5rem' }}>
+          <Link to="/privacy-policy" style={{ color: 'var(--muted-color)', textDecoration: 'underline' }}>Privacy Policy</Link> | <Link to="/disclaimer" style={{ color: 'var(--muted-color)', textDecoration: 'underline' }}>Disclaimer</Link>, as per all indian goverment norms
+        </p>
       </footer>
     </div>
   );
