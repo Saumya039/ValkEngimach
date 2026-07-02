@@ -64,22 +64,19 @@ export default function Login() {
               type="text" 
               className="input font-mono font-bold" 
               value={workerId}
-              onChange={(e) => setWorkerId(e.target.value.replace(/\D/g, ''))}
-              placeholder="e.g. 1000"
-              maxLength="4"
+              onChange={(e) => setWorkerId(e.target.value)}
+              placeholder="e.g. Admin"
               required 
             />
           </div>
           <div className="input-group">
-            <label>Numeric PIN</label>
+            <label>PIN / Password</label>
             <input 
               type="password" 
               className="input font-mono font-bold" 
               value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+              onChange={(e) => setPin(e.target.value)}
               placeholder="••••"
-              maxLength="4"
-              inputMode="numeric"
               required 
             />
           </div>
@@ -94,10 +91,7 @@ export default function Login() {
           </motion.button>
         </form>
 
-        <div className="mt-8 text-sm text-muted font-mono" style={{ opacity: 0.7 }}>
-          <p>Admin: ID 1000 / PIN 1234</p>
-          <p>Operator: ID 2001 / PIN 1111</p>
-        </div>
+
       </motion.div>
     </div>
   );
