@@ -26,6 +26,7 @@ export default function CashRegister() {
   const [showForm, setShowForm] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [filterType, setFilterType] = useState('all');
 
   // Admin Cash Out / Debit Form state
   const [debitDate, setDebitDate] = useState(new Date().toISOString().split('T')[0]);
@@ -147,7 +148,10 @@ export default function CashRegister() {
   // Reverse to show newest first
   ledger.reverse();
 
-  const visibleLedger = (dateFrom || dateTo) ? ledger.filter(l => isWithinRange(l.date, dateFrom, dateTo)) : ledger;
+  let visibleLedger = (dateFrom || dateTo) ? ledger.filter(l => isWithinRange(l.date, dateFrom, dateTo)) : ledger;
+  if (filterType !== 'all') {
+    visibleLedger = visibleLedger.filter(l => l.type === filterType);
+  }
 
   return (
     <div>
@@ -289,7 +293,21 @@ export default function CashRegister() {
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Type</th>
+                <th style={{ minWidth: '130px' }}>
+                  <div className="flex items-center gap-2">
+                    Type
+                    <select 
+                      style={{ padding: '0 1rem 0 0.5rem', backgroundPosition: 'right 0.25rem center', fontSize: '0.75rem', height: '24px' }} 
+                      className="select bg-transparent border-0 text-muted shadow-none font-medium cursor-pointer hover:bg-gray-100" 
+                      value={filterType} 
+                      onChange={(e) => setFilterType(e.target.value)}
+                    >
+                      <option value="all">All</option>
+                      <option value="credit">IN</option>
+                      <option value="debit">OUT</option>
+                    </select>
+                  </div>
+                </th>
                 <th>Category</th>
                 <th>Description</th>
                 <th>Remarks/Op</th>
