@@ -7,11 +7,7 @@ import { exportToPdf } from '../utils/exportPdf';
 import { formatDate, isWithinRange, MIN_RECORD_DATE } from '../utils/dateFormat';
 import DateRangeFilter from '../components/DateRangeFilter';
 import Modal from '../components/Modal';
-import { motion, AnimatePresence } from 'framer-motion';
-import { exportToCsv } from '../utils/exportCsv';
-import { exportToPdf } from '../utils/exportPdf';
-import { formatDate, isWithinRange, MIN_RECORD_DATE } from '../utils/dateFormat';
-import DateRangeFilter from '../components/DateRangeFilter';
+
 
 export default function CashRegister() {
   const [cashInLogs, setCashInLogs] = useState([]);
