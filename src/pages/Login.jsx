@@ -93,6 +93,11 @@ export default function Login() {
 
 
       </motion.div>
+
+      <footer style={{ position: 'absolute', bottom: '2rem', textAlign: 'center', fontSize: '0.8rem', color: 'var(--muted-color)', opacity: 0.8, width: '100%' }}>
+        <p>© 2026 Valk Engimach Private Limited</p>
+        <p style={{ marginTop: '0.5rem' }}>Privacy Policy | Disclaimer, as per all indian goverment norms</p>
+      </footer>
     </div>
   );
 }

@@ -60,6 +60,11 @@ export const Layout = () => {
           <Outlet />
         </motion.main>
       </AnimatePresence>
+      
+      <footer style={{ textAlign: 'center', padding: '2rem', fontSize: '0.8rem', color: 'var(--muted-color)', opacity: 0.8, marginTop: 'auto' }}>
+        <p>© 2026 Valk Engimach Private Limited</p>
+        <p style={{ marginTop: '0.5rem' }}>Privacy Policy | Disclaimer, as per all indian goverment norms</p>
+      </footer>
     </>
   );
 };
