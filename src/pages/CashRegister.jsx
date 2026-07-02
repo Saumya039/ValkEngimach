@@ -150,7 +150,7 @@ export default function CashRegister() {
 
   let visibleLedger = (dateFrom || dateTo) ? ledger.filter(l => isWithinRange(l.date, dateFrom, dateTo)) : ledger;
   if (filterType !== 'all') {
-    visibleLedger = visibleLedger.filter(l => l.type === filterType);
+    visibleLedger = visibleLedger.filter(l => (filterType === 'credit' ? l.type === 'credit' : l.type !== 'credit'));
   }
 
   return (
