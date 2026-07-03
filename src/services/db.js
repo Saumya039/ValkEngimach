@@ -44,46 +44,90 @@ export const updateProject = async (id, newName) => {
 // Machines
 export const getMachines = async () => {
   const { data } = await supabase.from('machines').select('*');
-  return data || [];
+  return data ? data.map(m => ({ ...m, lastMaintenance: m.lastmaintenance, nextMaintenance: m.nextmaintenance, pendingReview: m.pendingreview })) : [];
 };
 export const addMachine = async (name) => {
   const today = new Date().toISOString();
-  const newMachine = { id: Date.now().toString(), name, lastMaintenance: today, nextMaintenance: today, pendingReview: false };
-  const { data } = await supabase.from('machines').insert(newMachine).select().single();
-  return data || newMachine;
+  const newMachine = { id: Date.now().toString(), name, lastmaintenance: today, nextmaintenance: today, pendingreview: false };
+  const { data, error } = await supabase.from('machines').insert(newMachine).select().single();
+  if (error) throw error;
+  return data ? { ...data, lastMaintenance: data.lastmaintenance, nextMaintenance: data.nextmaintenance, pendingReview: data.pendingreview } : { ...newMachine, lastMaintenance: newMachine.lastmaintenance, nextMaintenance: newMachine.nextmaintenance, pendingReview: newMachine.pendingreview };
 };
 export const updateMachineName = async (id, newName) => {
-  await supabase.from('machines').update({ name: newName }).eq('id', id);
+  const { error } = await supabase.from('machines').update({ name: newName }).eq('id', id);
+  if (error) throw error;
 };
 export const updateMachineMaintenance = async (id, nextDate) => {
-  await supabase.from('machines').update({ 
-    lastMaintenance: new Date().toISOString(), 
-    nextMaintenance: new Date(nextDate).toISOString(), 
-    pendingReview: false 
+  const { error } = await supabase.from('machines').update({ 
+    lastmaintenance: new Date().toISOString(), 
+    nextmaintenance: new Date(nextDate).toISOString(), 
+    pendingreview: false 
   }).eq('id', id);
+  if (error) throw error;
 };
 export const reportMaintenanceDone = async (id) => {
-  await supabase.from('machines').update({ 
-    pendingReview: true, 
-    reportedAt: new Date().toISOString() 
+  const { error } = await supabase.from('machines').update({ 
+    pendingreview: true, 
+    reportedat: new Date().toISOString() 
   }).eq('id', id);
+  if (error) throw error;
 };
 
 // Machine Logs
+const mapMachineLogFromDB = (d) => ({
+  ...d,
+  endDate: d.enddate,
+  operatorId: d.operatorname,
+  operatorName: d.operatorname,
+  operatorNames: d.operatornames,
+  machineId: d.machineid,
+  projectId: d.projectid,
+  activityType: d.activitytype,
+  startTime: d.starttime,
+  endTime: d.endtime,
+  netHours: d.nethours,
+  createdAt: d.createdat
+});
+
+const mapMachineLogToDB = (d) => {
+  const payload = {
+    id: d.id,
+    date: d.date,
+    enddate: d.endDate,
+    operatorname: d.operatorId || d.operatorName,
+    operatornames: d.operatorNames,
+    machineid: d.machineId,
+    projectid: d.projectId,
+    activitytype: d.activityType,
+    starttime: d.startTime,
+    endtime: d.endTime,
+    nethours: d.netHours,
+    notes: d.notes,
+    photo: d.photo
+  };
+  Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
+  return payload;
+};
+
 export const addMachineLog = async (logData) => {
-  const newLog = { ...logData, id: Date.now().toString() };
-  const { data } = await supabase.from('machine_logs').insert(newLog).select().single();
-  return data || newLog;
+  const newLog = mapMachineLogToDB({ ...logData, id: Date.now().toString() });
+  const { data, error } = await supabase.from('machine_logs').insert(newLog).select().single();
+  if (error) throw error;
+  return data ? mapMachineLogFromDB(data) : mapMachineLogFromDB(newLog);
 };
 export const updateMachineLog = async (id, updatedData) => {
-  await supabase.from('machine_logs').update(updatedData).eq('id', id);
+  const payload = mapMachineLogToDB({ ...updatedData, id });
+  delete payload.id;
+  const { error } = await supabase.from('machine_logs').update(payload).eq('id', id);
+  if (error) throw error;
 };
 export const deleteMachineLog = async (id) => {
-  await supabase.from('machine_logs').delete().eq('id', id);
+  const { error } = await supabase.from('machine_logs').delete().eq('id', id);
+  if (error) throw error;
 };
 export const getMachineLogs = async () => {
-  const { data } = await supabase.from('machine_logs').select('*').order('createdAt', { ascending: false });
-  return data || [];
+  const { data } = await supabase.from('machine_logs').select('*').order('createdat', { ascending: false });
+  return data ? data.map(mapMachineLogFromDB) : [];
 };
 
 // Operator Names
@@ -135,20 +179,46 @@ export const getCashIn = async () => {
 };
 
 // Expenses
+const mapExpenseFromDB = (d) => ({
+  ...d,
+  projectId: d.projectid,
+  operatorId: d.operatorid,
+  operatorName: d.operatorname
+});
+const mapExpenseToDB = (d) => {
+  const payload = {
+    id: d.id,
+    date: d.date,
+    amount: d.amount,
+    description: d.description,
+    category: d.category,
+    projectid: d.projectId,
+    operatorid: d.operatorId,
+    operatorname: d.operatorName
+  };
+  Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
+  return payload;
+};
+
 export const addExpense = async (data) => {
-  const entry = { ...data, id: Date.now().toString() };
-  const { data: ret } = await supabase.from('expenses').insert(entry).select().single();
-  return ret || entry;
+  const entry = mapExpenseToDB({ ...data, id: Date.now().toString() });
+  const { data: ret, error } = await supabase.from('expenses').insert(entry).select().single();
+  if (error) throw error;
+  return ret ? mapExpenseFromDB(ret) : mapExpenseFromDB(entry);
 };
 export const updateExpense = async (id, updatedData) => {
-  await supabase.from('expenses').update(updatedData).eq('id', id);
+  const payload = mapExpenseToDB({ ...updatedData, id });
+  delete payload.id;
+  const { error } = await supabase.from('expenses').update(payload).eq('id', id);
+  if (error) throw error;
 };
 export const deleteExpense = async (id) => {
-  await supabase.from('expenses').delete().eq('id', id);
+  const { error } = await supabase.from('expenses').delete().eq('id', id);
+  if (error) throw error;
 };
 export const getExpenses = async () => {
   const { data } = await supabase.from('expenses').select('*').order('date', { ascending: false });
-  return data || [];
+  return data ? data.map(mapExpenseFromDB) : [];
 };
 
 // Financial Summary
