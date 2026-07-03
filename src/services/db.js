@@ -181,12 +181,18 @@ export const setCashAlertThreshold = async (val) => {
 // Forecasts
 export const getForecasts = async () => {
   const { data } = await supabase.from('forecasts').select('*');
-  return data || [];
+  return data ? data.map(d => ({ ...d, machineId: d.machineid, projectId: d.projectid })) : [];
 };
 export const addForecast = async (forecastData) => {
-  const newForecast = { ...forecastData, id: Date.now().toString() };
+  const newForecast = { 
+    machineid: forecastData.machineId, 
+    projectid: forecastData.projectId, 
+    month: forecastData.month, 
+    hours: forecastData.hours, 
+    id: Date.now().toString() 
+  };
   const { data } = await supabase.from('forecasts').insert(newForecast).select().single();
-  return data || newForecast;
+  return data ? { ...data, machineId: data.machineid, projectId: data.projectid } : { ...newForecast, machineId: newForecast.machineid, projectId: newForecast.projectid };
 };
 export const deleteForecast = async (id) => {
   await supabase.from('forecasts').delete().eq('id', id);
