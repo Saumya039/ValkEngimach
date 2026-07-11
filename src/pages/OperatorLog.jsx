@@ -41,9 +41,16 @@ export default function OperatorLog() {
   const [expProjectId, setExpProjectId] = useState('');
   const [expenseQueue, setExpenseQueue] = useState([]);
 
-  // Master Ledger (read-only)
+  // Master Ledger
   const [ledgerCashIn, setLedgerCashIn] = useState([]);
   const [ledgerExpenses, setLedgerExpenses] = useState([]);
+  // Inline edit in ledger for OUT entries
+  const [ledgerEditingId, setLedgerEditingId] = useState(null);
+  const [ledgerEditAmount, setLedgerEditAmount] = useState('');
+  const [ledgerEditDesc, setLedgerEditDesc] = useState('');
+  const [ledgerEditDate, setLedgerEditDate] = useState('');
+  const [ledgerEditCategory, setLedgerEditCategory] = useState('');
+  const [ledgerSaving, setLedgerSaving] = useState(false);
 
   // Recent Logs & Editing
   const [recentMachineLogs, setRecentMachineLogs] = useState([]);
@@ -290,6 +297,40 @@ export default function OperatorLog() {
   const cancelEditExpense = () => {
     setEditingExpenseId(null);
     resetExpenseLine();
+  };
+
+  // Ledger inline edit (OUT entries only)
+  const startLedgerEdit = (log) => {
+    setLedgerEditingId(log.id);
+    setLedgerEditAmount(log.amount.toString());
+    setLedgerEditDesc(log.description || '');
+    setLedgerEditDate(log.date);
+    setLedgerEditCategory(log.category || 'Other');
+  };
+
+  const cancelLedgerEdit = () => {
+    setLedgerEditingId(null);
+  };
+
+  const saveLedgerEdit = async () => {
+    if (!ledgerEditAmount || !ledgerEditDesc) return alert('Please fill amount and description.');
+    setLedgerSaving(true);
+    try {
+      await updateExpense(ledgerEditingId, {
+        date: ledgerEditDate,
+        amount: Number(ledgerEditAmount),
+        description: ledgerEditDesc,
+        category: ledgerEditCategory
+      });
+      setLedgerEditingId(null);
+      setSuccessMsg('Expense updated!');
+      setTimeout(() => setSuccessMsg(''), 3000);
+      fetchData();
+    } catch (err) {
+      alert('Failed to update expense.');
+    } finally {
+      setLedgerSaving(false);
+    }
   };
 
   const expenseSubmitDisabled = submitting || (!editingExpenseId && expenseQueue.length === 0 && (!expAmount || !expDescription));
@@ -565,20 +606,27 @@ export default function OperatorLog() {
             </div>
 
             <div className="mt-8 pt-6 border-t border-gray-100">
-              <h4 className="font-bold mb-4">Cash Out Entries (tap edit icon to fix an entry)</h4>
+              <h4 className="font-bold mb-4">Cash Out Entries (tap ✏️ to fix an entry)</h4>
               <div className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1">
                 {recentExpenses.map(exp => {
                   const p = projects.find(proj => proj.id === exp.projectId);
                   return (
-                    <div key={exp.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50 flex justify-between items-center">
-                      <div>
-                        <p className="font-bold text-sm">₹{exp.amount} &middot; {exp.category}</p>
-                        <p className="text-xs text-muted">{formatDate(exp.date)} &middot; {exp.description}</p>
-                        {p && <p className="text-xs text-cta-color mt-1">{p.name}</p>}
+                    <div key={exp.id} style={{ padding: '0.75rem', border: '1px solid var(--border-color)', borderRadius: '10px', background: 'var(--surface-color)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.2rem' }}>₹{Number(exp.amount).toLocaleString('en-IN')}</p>
+                          <p style={{ fontSize: '0.82rem', color: 'var(--muted-color)', marginBottom: '0.15rem', wordBreak: 'break-word' }}>{exp.description}</p>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center', marginTop: '0.3rem' }}>
+                            <span style={{ fontSize: '0.75rem', background: 'var(--border-color)', borderRadius: '4px', padding: '0.1rem 0.4rem' }}>{exp.category}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--muted-color)' }}>{formatDate(exp.date)}</span>
+                            {exp.operatorName && <span style={{ fontSize: '0.75rem', color: 'var(--muted-color)' }}>by {exp.operatorName}</span>}
+                            {p && <span style={{ fontSize: '0.75rem', color: 'var(--cta-color)' }}>{p.name}</span>}
+                          </div>
+                        </div>
+                        <button type="button" style={{ padding: '0.4rem', color: 'var(--cta-color)', flexShrink: 0 }} onClick={() => handleEditExpense(exp)} disabled={submitting || editingExpenseId === exp.id}>
+                          <Edit2 size={16} />
+                        </button>
                       </div>
-                      <button type="button" className="text-cta-color p-2" onClick={() => handleEditExpense(exp)} disabled={submitting || editingExpenseId === exp.id}>
-                        <Edit2 size={16} />
-                      </button>
                     </div>
                   );
                 })}
@@ -590,24 +638,93 @@ export default function OperatorLog() {
 
         {activeTab === 'ledger' && (
           <motion.div key="ledger" className="card" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} style={{ padding: '1rem' }}>
-            <h3 className="mb-4 text-gradient">Master Ledger (Read-only)</h3>
-            <div className="overflow-x-hidden max-h-[600px] overflow-y-auto pr-2 pb-4">
+            <h3 className="mb-1 text-gradient">Master Ledger</h3>
+            <p className="text-xs text-muted mb-4">Cash IN is read-only. Tap ✏️ on OUT entries to edit.</p>
+            <div className="overflow-x-hidden max-h-[600px] overflow-y-auto pr-1 pb-4">
               <div className="flex flex-col gap-3">
                 {ledgerRows.map(log => (
-                  <div key={log.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50 flex flex-col gap-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-mono text-muted">{formatDate(log.date)}</span>
-                      {log.type === 'credit' ? <span className="badge badge-success px-2 py-0.5 text-xs">IN</span> : <span className="badge badge-danger px-2 py-0.5 text-xs">OUT</span>}
-                    </div>
-                    <div className="text-sm font-medium break-words leading-tight">{log.description}</div>
-                    <div className="flex justify-between items-center mt-1 pt-2 border-t border-gray-100">
-                      <div className="text-xs text-muted">
-                        Amt: <span style={{ color: log.type === 'credit' ? '#10b981' : '#f43f5e', fontWeight: 'bold' }}>{log.type === 'credit' ? '+' : '-'}₹{Number(log.amount).toLocaleString()}</span>
+                  <div key={log.id} style={{ padding: '0.75rem', border: '1px solid var(--border-color)', borderRadius: '10px', background: 'var(--surface-color)' }}>
+                    {/* Normal view */}
+                    {ledgerEditingId !== log.id && (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                          <span style={{ fontSize: '0.78rem', fontFamily: 'monospace', color: 'var(--muted-color)' }}>{formatDate(log.date)}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            {log.type === 'credit'
+                              ? <span className="badge badge-success" style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem' }}>IN</span>
+                              : <span className="badge badge-danger" style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem' }}>OUT</span>
+                            }
+                            {/* Edit button only for OUT */}
+                            {log.type !== 'credit' && (
+                              <button
+                                type="button"
+                                style={{ padding: '0.25rem', color: 'var(--cta-color)', lineHeight: 1 }}
+                                onClick={() => startLedgerEdit(log)}
+                                title="Edit this expense"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.88rem', fontWeight: 500, wordBreak: 'break-word', marginBottom: '0.4rem' }}>{log.description}</div>
+                        {log.operatorName && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted-color)', marginBottom: '0.3rem' }}>by {log.operatorName}</div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.4rem', borderTop: '1px solid var(--border-color)' }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--muted-color)' }}>
+                            Amt: <strong style={{ color: log.type === 'credit' ? '#10b981' : '#f43f5e' }}>{log.type === 'credit' ? '+' : '-'}₹{Number(log.amount).toLocaleString('en-IN')}</strong>
+                          </span>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--muted-color)' }}>
+                            Bal: <strong style={{ color: 'var(--text-color)' }}>₹{Number(log.balance).toLocaleString('en-IN')}</strong>
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    {/* Inline edit form for OUT entries */}
+                    {ledgerEditingId === log.id && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                        <p style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--cta-color)', marginBottom: '0.2rem' }}>✏️ Editing OUT entry</p>
+                        <div className="input-group" style={{ marginBottom: 0 }}>
+                          <label style={{ fontSize: '0.78rem' }}>Date</label>
+                          <input type="date" className="input" style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }} value={ledgerEditDate} onChange={e => setLedgerEditDate(e.target.value)} />
+                        </div>
+                        <div className="input-group" style={{ marginBottom: 0 }}>
+                          <label style={{ fontSize: '0.78rem' }}>Description</label>
+                          <input type="text" className="input" style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }} value={ledgerEditDesc} onChange={e => setLedgerEditDesc(e.target.value)} />
+                        </div>
+                        <div className="input-group" style={{ marginBottom: 0 }}>
+                          <label style={{ fontSize: '0.78rem' }}>Amount (₹)</label>
+                          <input type="number" className="input font-mono" style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }} value={ledgerEditAmount} onChange={e => setLedgerEditAmount(e.target.value)} />
+                        </div>
+                        <div className="input-group" style={{ marginBottom: 0 }}>
+                          <label style={{ fontSize: '0.78rem' }}>Category</label>
+                          <select className="select" style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }} value={ledgerEditCategory} onChange={e => setLedgerEditCategory(e.target.value)}>
+                            <option value="Not clear">Not clear</option>
+                            <option value="Asset">Asset</option>
+                            <option value="Advance Salary">Advance Salary</option>
+                            <option value="Job work">Job work</option>
+                            <option value="Meal and Tea etc">Meal and Tea etc</option>
+                            <option value="Non Production Consumable">Non Production Consumable</option>
+                            <option value="Production Consumable">Production Consumable</option>
+                            <option value="Travel Allowance">Travel Allowance</option>
+                            <option value="Maintenance">Maintenance</option>
+                            <option value="Transportation">Transportation</option>
+                            <option value="Tools and Hardware">Tools and Hardware</option>
+                            <option value="Raw Material">Raw Material</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+                          <button type="button" className="btn btn-primary" style={{ flex: 1, fontSize: '0.85rem', padding: '0.5rem' }} onClick={saveLedgerEdit} disabled={ledgerSaving}>
+                            {ledgerSaving ? 'Saving...' : 'Save'}
+                          </button>
+                          <button type="button" className="btn btn-outline" style={{ flex: 1, fontSize: '0.85rem', padding: '0.5rem' }} onClick={cancelLedgerEdit} disabled={ledgerSaving}>
+                            Cancel
+                          </button>
+                        </div>
                       </div>
-                      <div className="text-xs text-muted">
-                        Bal: <span className="font-bold text-gray-800">₹{log.balance.toLocaleString()}</span>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 ))}
                 {ledgerRows.length === 0 && (
